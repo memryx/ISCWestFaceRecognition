@@ -7,6 +7,9 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import QTimer, QThread, Signal
 import time
 
+
+
+
 def is_image(source):
     return source.endswith(('.jpg', '.jpeg', '.png', '.bmp'))
 
@@ -25,6 +28,13 @@ class VideoConfig:
     def set(self, cap: cv2.VideoCapture):
         for k, v in self.config.items():
             cap.set(k, v)
+
+VIDEO_CONFIG = {
+    '4k': VideoConfig(3840, 2160), 
+    '2k': VideoConfig(2560, 1440),
+    '1080p': VideoConfig(1920,1080),
+    '720p': VideoConfig(1280, 720)
+}
 
 # Thread for reading and rendering the final video frames
 class CompositeThread(QThread):
@@ -127,7 +137,7 @@ class CaptureThread(QThread):
 
 # Viewer for video frames  
 class Viewer(QWidget):
-    def __init__(self, video_path='/dev/video0'):
+    def __init__(self, video_path='/dev/video0', video_config=None):
         super().__init__()
         self.setWindowTitle("Video Viewer")
 
@@ -141,7 +151,9 @@ class Viewer(QWidget):
 
         # Set up video-related attributes
         self.frame_queue = queue.Queue(maxsize=6)
-        self.video_reader_thread = CaptureThread(video_path, self.frame_queue)
+        self.video_reader_thread = CaptureThread(video_path, 
+                                                 self.frame_queue, 
+                                                 video_config)
         self.video_display_thread = CompositeThread(self.frame_queue)
 
         # Connect only the display thread signal to the update_frame slot.
@@ -158,12 +170,8 @@ class Viewer(QWidget):
         cur_time = time.time()
         self.timestamps.append(int(cur_time))
         self.timestamps.pop(0)
-        dt = np.average([self.timestamps[i + 1] - self.timestamps[i] for i in range(len(self.timestamps) - 1)])
 
         self.current_frame = frame
-
-        # Draw bounding boxes and labels for each face in the frame
-        #frame = frame.copy()
 
         # Resize the frame to fit the available area for the video viewer while preserving the aspect ratio
         video_label_width = self.video_label.width()
@@ -183,14 +191,13 @@ class Viewer(QWidget):
         frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
         self.video_label.setMinimumSize(1, 1)
 
-        # Get image information
+        ## Get image information
         height, width, channels = frame.shape
         bytes_per_line = channels * width
 
         # Create QImage and display it
         q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
         self.video_label.setPixmap(QPixmap.fromImage(q_image))
-
 
     def closeEvent(self, event):
         # Stop threads and release video capture on close
@@ -202,8 +209,9 @@ class Viewer(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video0"  # Replace with your video file path
-    player = Viewer(video_path)
-    player.resize(640, 480)
+    video_path = "/dev/video2"  # Replace with your video file path
+    #video_path = "/home/jake/Videos/lunch.mp4"
+    player = Viewer(video_path, VIDEO_CONFIG['2k'])
+    player.resize(1200, 800)
     player.show()
     sys.exit(app.exec())
