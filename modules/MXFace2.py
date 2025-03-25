@@ -30,6 +30,7 @@ class DetectedFace():
     # Embedding
     embedding: np.ndarray = field(default_factory=lambda: np.zeros([128]))
 
+
 @dataclass
 class AnnotatedFrame():
     image: np.ndarray
@@ -41,6 +42,7 @@ class AnnotatedFrame():
     @property
     def num_detected_faces(self):
         return len(self.scores)
+
 
 class MXFace():
     detector_imgsz = 640
@@ -325,4 +327,29 @@ class MXFace():
             order = order[indices_to_keep + 1]  # Update the order by excluding the boxes with high IoU
     
         return np.array(keep)
+
+
+class MockMXFace(MXFace):
+
+    def __init__(self, models_dir: Path):
+        self.detect_q  = queue.Queue(maxsize=1)
+        self.recognize_q  = queue.Queue(maxsize=1)
+
+    def stop(self):
+        pass
+
+    def detect_put(self, image, block=True, timeout=None):
+        annotated_frame = AnnotatedFrame(np.array(image))
+        self.detect_q.put(annotated_frame, block, timeout)
+
+    def detect_get(self, block=True, timeout=None):
+        annotated_frame = self.detect_q.get(block, timeout)
+        return annotated_frame
+
+    def recognize_put(self, face, block=True, timeout=None):
+        self.recognize_q.put(face, block, timeout)
+
+    def recognize_get(self, block=True, timeout=None):
+        (id, _) = self.recognize_q.get(block, timeout)
+        return (id, np.zeros([128]))
 
