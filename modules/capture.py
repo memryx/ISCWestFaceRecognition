@@ -7,9 +7,6 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import QTimer, QThread, Signal
 import time
 
-
-
-
 def is_image(source):
     return source.endswith(('.jpg', '.jpeg', '.png', '.bmp'))
 
@@ -32,40 +29,18 @@ class VideoConfig:
 VIDEO_CONFIG = {
     '4k': VideoConfig(3840, 2160), 
     '2k': VideoConfig(2560, 1440),
-    '1080p': VideoConfig(1920,1080),
+    '1080p': VideoConfig(1920,1080, fps=60),
     '720p': VideoConfig(1280, 720)
 }
-
-# Thread for reading and rendering the final video frames
-class CompositeThread(QThread):
-    frame_ready = Signal(np.ndarray)
-
-    def __init__(self, frame_queue):
-        super().__init__()
-        self.frame_queue = frame_queue
-        self.stop_threads = False
-
-    def run(self):
-        while not self.stop_threads or not self.frame_queue.empty():
-            try:
-                frame = self.frame_queue.get(timeout=1)  # Timeout to allow shutdown
-                self.frame_ready.emit(frame)
-            except queue.Empty:
-                #print('Unable to get.. skipping')
-                continue
-        print("Video display stopped.")
-
-    def stop(self):
-        self.stop_threads = True
 
 # Thread for reading video frames
 class CaptureThread(QThread):
 
-    def __init__(self, video_source, frame_queue, video_config=None):
+    def __init__(self, video_source, mxface, video_config=None):
         super().__init__()
         self.video_config = video_config
         self.video_source = video_source
-        self.frame_queue = frame_queue
+        self.mxface = mxface
         self.stop_threads = False
         self.pause = False
         self.cur_frame = None
@@ -77,9 +52,9 @@ class CaptureThread(QThread):
             print("Failed to load image.")
             return
         while not self.stop_threads:
-            if not self.frame_queue.full():
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                self.frame_queue.put(np.array(rgb_frame))
+            #if not self.mxface.full():
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self.mxface.detect_put(np.array(rgb_frame), block=False)
             time.sleep(1 / 30)  # Simulate 30fps for static image
 
     def _read_video(self):
@@ -110,17 +85,17 @@ class CaptureThread(QThread):
             # Simulating real-time video stream (30fps)
             if is_video(self.video_source):
                 start = time.time()
-                self.frame_queue.put(np.array(rgb_frame))
+                self.mxface.detect_put(np.array(rgb_frame), block=False)
                 dt = time.time() - start
                 time.sleep(max(0.033-dt, 0))  
             else:
                 try:
-                    self.frame_queue.put(self.cur_frame, timeout=0.033)
+                    self.mxface.detect_put(self.cur_frame, timeout=0.033)
                 except queue.Full:
                     print('Dropped Frame')
 
         cap.release()
-        print("Video reader stopped.")
+        print("Shutting down CaptureThread")
 
     def run(self):
         """Read video frames and emit signal"""
@@ -135,83 +110,3 @@ class CaptureThread(QThread):
     def stop(self):
         self.stop_threads = True
 
-# Viewer for video frames  
-class Viewer(QWidget):
-    def __init__(self, video_path='/dev/video0', video_config=None):
-        super().__init__()
-        self.setWindowTitle("Video Viewer")
-
-        # Create and configure the video display label
-        self.video_label = QLabel(self)
-        self.video_label.setMouseTracking(True)
-
-        # Set a layout and add the video label to the widget
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.video_label)
-
-        # Set up video-related attributes
-        self.frame_queue = queue.Queue(maxsize=6)
-        self.video_reader_thread = CaptureThread(video_path, 
-                                                 self.frame_queue, 
-                                                 video_config)
-        self.video_display_thread = CompositeThread(self.frame_queue)
-
-        # Connect only the display thread signal to the update_frame slot.
-        self.video_display_thread.frame_ready.connect(self.update_frame)
-
-        # Start the threads
-        self.video_reader_thread.start()
-        self.video_display_thread.start()
-
-        # For frame rate calculation
-        self.timestamps = [0] * 30
-
-    def update_frame(self, frame):
-        cur_time = time.time()
-        self.timestamps.append(int(cur_time))
-        self.timestamps.pop(0)
-
-        self.current_frame = frame
-
-        # Resize the frame to fit the available area for the video viewer while preserving the aspect ratio
-        video_label_width = self.video_label.width()
-        video_label_height = self.video_label.height()
-        frame_height, frame_width, _ = frame.shape
-
-        aspect_ratio = frame_width / frame_height
-        if video_label_width / video_label_height > aspect_ratio:
-            #new_height = min(video_label_height, frame_height)
-            new_height = video_label_height
-            new_width = int(aspect_ratio * new_height)
-        else:
-            #new_width = min(video_label_width, frame_width)
-            new_width = video_label_width
-            new_height = int(new_width / aspect_ratio)
-
-        frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-        self.video_label.setMinimumSize(1, 1)
-
-        ## Get image information
-        height, width, channels = frame.shape
-        bytes_per_line = channels * width
-
-        # Create QImage and display it
-        q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
-        self.video_label.setPixmap(QPixmap.fromImage(q_image))
-
-    def closeEvent(self, event):
-        # Stop threads and release video capture on close
-        self.video_reader_thread.stop()
-        self.video_reader_thread.wait()
-        self.video_display_thread.stop()
-        self.video_display_thread.wait()
-        super().closeEvent(event)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    video_path = "/dev/video2"  # Replace with your video file path
-    #video_path = "/home/jake/Videos/lunch.mp4"
-    player = Viewer(video_path, VIDEO_CONFIG['2k'])
-    player.resize(1200, 800)
-    player.show()
-    sys.exit(app.exec())
