@@ -7,6 +7,7 @@ from modules.MXFace2 import MXFace, AnnotatedFrame
 import cv2
 import time
 from .database import FaceDatabase
+from .utils import Framerate
 
 
 @dataclass
@@ -15,6 +16,8 @@ class TrackedObject:
     track_id: int
     name: str
     activated: bool = True
+    last_recognition: float = 0.0
+    distance: float = 0.0
 
 
 @dataclass
@@ -25,20 +28,20 @@ class CompositeFrame:
 
 class FaceTracker:
     """
-    FaceTracker now manages two threads:
-      - DetectionThread: continuously pulls detections from mxface.detect_get(),
-        updates the tracker and pushes unknown faces (with track_id) to be recognized.
-      - RecognitionThread: continuously pulls recognition results from mxface.recognize_get()
-        and updates the tracker_dict with the recognized name.
+    DetectionThread: continuously pulls detections from mxface.detect_get(),
+    updates the tracker and pushes unknown faces (with track_id) to be recognized.
+    RecognitionThread: continuously pulls recognition results from mxface.recognize_get()
+    and updates the tracker_dict with the recognized name.
     """
-    def __init__(self, mxface: MXFace):
+
+
+    def __init__(self, mxface: MXFace, face_database: FaceDatabase):
         self.tracker = BYTETracker()
         self.mxface = mxface
         self.tracker_dict = {}  # Mapping from track_id to TrackedObject
         self.current_frame = AnnotatedFrame(np.zeros([10, 10, 3]))
         self.composite_queue = queue.Queue(maxsize=1)
-        self.database = FaceDatabase() 
-        self.database.load_database_embeddings('assets/db')
+        self.database = face_database
         
         # Create worker threads for detection and recognition
         self.detection_thread = DetectionThread(self)
@@ -103,8 +106,12 @@ class DetectionThread(QThread):
         super().__init__()
         self.face_tracker = face_tracker
         self.stop_threads = False
+        self.refresh_interval = 1
+        self.framerate = Framerate()
 
     def _update_detections(self):
+        self.framerate.update()
+
         try:
             annotated_frame = self.face_tracker.mxface.detect_get(timeout=0.033)
             self.face_tracker.current_frame = annotated_frame
@@ -115,6 +122,7 @@ class DetectionThread(QThread):
         for tracked_object in self.face_tracker.tracker_dict.values():
             tracked_object.activated = False
 
+        current_time = time.time()
         if annotated_frame.num_detected_faces == 0:
             return
 
@@ -126,15 +134,26 @@ class DetectionThread(QThread):
         dets = np.array(dets, dtype=np.float32)
 
         # Update tracker with the new detections
+        # Update tracker with the new detections
         for tracklet in self.face_tracker.tracker.update(dets, None):
             x1, y1, x2, y2, track_id, _, _ = tracklet.astype(int)
+            # For an existing track, update bbox and activate it.
             if track_id in self.face_tracker.tracker_dict:
-                self.face_tracker.tracker_dict[track_id].bbox = (x1, y1, x2, y2)
-                self.face_tracker.tracker_dict[track_id].activated = True
+                tracked_obj = self.face_tracker.tracker_dict[track_id]
+                tracked_obj.bbox = (x1, y1, x2, y2)
+                tracked_obj.activated = True
+
+                # Refresh active track if refresh_interval elapsed.
+                if current_time - tracked_obj.last_recognition > self.refresh_interval:
+                    face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
+                    try:
+                        self.face_tracker.mxface.recognize_put((track_id, face), block=False)
+                    except queue.Full:
+                        pass
             else:
-                # New track detected; create a new tracked object
-                self.face_tracker.tracker_dict[track_id] = TrackedObject((x1, y1, x2, y2), track_id, "Unknown")
-                # Extract the face from the current frame and push it for recognition
+                # New track: create a new tracked object and request recognition immediately.
+                new_obj = TrackedObject((x1, y1, x2, y2), track_id, "Unknown", activated=True, last_recognition=current_time)
+                self.face_tracker.tracker_dict[track_id] = new_obj
                 face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                 try:
                     self.face_tracker.mxface.recognize_put((track_id, face), block=False)
@@ -171,18 +190,28 @@ class RecognitionThread(QThread):
         super().__init__()
         self.face_tracker = face_tracker
         self.stop_threads = False
+        self.framerate = Framerate()
 
     def run(self):
         while not self.stop_threads:
-            try:
-                # Expect recognition results as (track_id, recognized_name)
-                track_id, embedding = self.face_tracker.mxface.recognize_get(timeout=0.1)
-                if track_id in self.face_tracker.tracker_dict:
-                    name, distances = self.face_tracker.database.find(embedding)
-                    self.face_tracker.tracker_dict[track_id].name = name
-                    self.face_tracker.tracker_dict[track_id].distance = distances[0]
-            except queue.Empty:
-                continue
+            self.framerate.update()
+            self._run()
+
+    def _run(self):
+        try:
+            # Expect recognition results as (track_id, recognized_name)
+            track_id, embedding = self.face_tracker.mxface.recognize_get(timeout=0.1)
+        except queue.Empty:
+            return
+
+        if track_id in self.face_tracker.tracker_dict:
+            return 
+
+        name, distances = self.face_tracker.database.find(embedding)
+        tracked_obj = self.face_tracker.tracker_dict[track_id]
+        tracked_obj.name = name
+        tracked_obj.distance = distances[0]
+        tracked_obj.last_recognition = time.time()
 
     def stop(self):
         self.stop_threads = True

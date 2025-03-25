@@ -7,6 +7,8 @@ from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import QTimer, QThread, Signal
 import time
 
+from .utils import Framerate
+
 def is_image(source):
     return source.endswith(('.jpg', '.jpeg', '.png', '.bmp'))
 
@@ -45,17 +47,26 @@ class CaptureThread(QThread):
         self.pause = False
         self.cur_frame = None
 
+        self.framerate = Framerate()
+
     def _read_image(self):
         """Read image file and simulate video stream"""
         frame = cv2.imread(self.video_source)
         if frame is None:
             print("Failed to load image.")
             return
+
         while not self.stop_threads:
+            self.framerate.update()
+
             #if not self.mxface.full():
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            self.mxface.detect_put(np.array(rgb_frame), block=False)
-            time.sleep(1 / 30)  # Simulate 30fps for static image
+            try:
+                self.mxface.detect_put(np.array(rgb_frame), block=False)
+            except queue.Full:
+                pass
+
+            #time.sleep(1 / 30)  # Simulate 30fps for static image
 
     def _read_video(self):
         """Read video file or stream"""
@@ -95,7 +106,6 @@ class CaptureThread(QThread):
                     print('Dropped Frame')
 
         cap.release()
-        print("Shutting down CaptureThread")
 
     def run(self):
         """Read video frames and emit signal"""
@@ -108,5 +118,6 @@ class CaptureThread(QThread):
         self.pause = not self.pause
 
     def stop(self):
+        print("Shutting down CaptureThread")
         self.stop_threads = True
 

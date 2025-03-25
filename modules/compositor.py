@@ -4,6 +4,8 @@ import cv2
 
 from PySide6.QtCore import QTimer, QObject, Signal
 
+from .utils import Framerate
+
 class Compositor(QObject):
     frame_ready = Signal(np.ndarray)
 
@@ -13,8 +15,10 @@ class Compositor(QObject):
         self.timer = QTimer(self)
         self.timer.setInterval(interval)
         self.timer.timeout.connect(self.poll_queue)
+        self.framerate = Framerate()
 
         self.show_conf = False
+
 
     def start(self):
         self.timer.start()
@@ -65,6 +69,7 @@ class Compositor(QObject):
         return frame
 
     def poll_queue(self):
+        self.framerate.update()
         try:
             # Use get_nowait so that we do not block the timer callback
             composite_frame = self.face_tracker.composite_queue.get_nowait() 
