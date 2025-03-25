@@ -8,6 +8,14 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class Face:
+    """container for passing a face around"""
+    track_id: int
+    face: np.ndarray
+
+
 @dataclass
 class DetectedFace():
     # Bounding box coords (left,top,width,height)
@@ -35,7 +43,6 @@ class AnnotatedFrame():
         return len(self.scores)
 
 class MXFace():
-    cosine_threshold = 0.48
     detector_imgsz = 640
     recognizer_imgsz = 160 
 
@@ -64,25 +71,6 @@ class MXFace():
         self._outstanding_recognition_frames = 0
 
     ### Public Functions ######################################################
-    @staticmethod
-    def cosine_similarity(vector1, vector2):
-        # Ensure the vectors are numpy arrays
-        vector1 = np.array(vector1)
-        vector2 = np.array(vector2)
-        
-        # Compute the dot product and magnitudes
-        dot_product = np.dot(vector1, vector2)
-        magnitude1 = np.linalg.norm(vector1)
-        magnitude2 = np.linalg.norm(vector2)
-        
-        # Handle the case where the magnitude is zero to avoid division by zero
-        if magnitude1 == 0 or magnitude2 == 0:
-            return 0.0
-        
-        # Compute cosine similarity
-        cosine_sim = dot_product / (magnitude1 * magnitude2)
-        
-        return cosine_sim
 
     def stop(self):
         logger.info('stop')
@@ -100,7 +88,7 @@ class MXFace():
                 continue
             
         self.detect_input_q.put(None)
-        self.recognize_input_q.put(None)
+        self.recognize_input_q.put((None, None))
         self._stopped = True
         self.accl.shutdown()
 
@@ -116,12 +104,12 @@ class MXFace():
 
     def recognize_put(self, face, block=True, timeout=None):
         self._outstanding_recognition_frames += 1
-        self.recognize_input_q.put(np.array(face), block, timeout)
+        self.recognize_input_q.put(face, block, timeout)
 
     def recognize_get(self, block=True, timeout=None):
-        detected_face = self.recognize_output_q.get(block, timeout)
+        face_embedding = self.recognize_output_q.get(block, timeout)
         self._outstanding_recognition_frames -= 1
-        return detected_face
+        return face_embedding
 
     ### Async Functions #######################################################
     def _detector_source(self):
@@ -150,30 +138,26 @@ class MXFace():
         self.detect_output_q.put(annotated_frame)
 
     def _recognizer_source(self):
-        detected_face = self.recognize_input_q.get()
+        track_id, detected_face = self.recognize_input_q.get()
 
         if detected_face is None:
             return None
 
-        self.recognize_bypass_q.put(detected_face)
+        self.recognize_bypass_q.put(track_id)
 
         face = self._letterbox_image(
-            detected_face.image, 
+            detected_face, 
             (self.recognizer_imgsz, self.recognizer_imgsz)
         )
         face = face / 255.0
         return face.astype(np.float32)
 
     def _recognizer_sink(self, *outputs):
-        annotated_frame, detected_face = self.recognize_bypass_q.get()
-        detected_face.embedding = np.squeeze(outputs[0])
-        annotated_frame.detected_faces.append(detected_face)
+        track_id = self.recognize_bypass_q.get()
+        embedding = np.squeeze(outputs[0])
 
-        if len(annotated_frame.detected_faces) == annotated_frame.num_detections:
-            if annotated_frame._static:
-                self.static_output_q.put(annotated_frame)
-            else:
-                self.output_q.put(annotated_frame)
+        self.recognize_output_q.put((track_id, embedding))
+
     ### Pre / Post Processing steps ###########################################
     def _letterbox_image(self, image, target_size):
         original_size = image.shape[:2]

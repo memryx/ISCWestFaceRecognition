@@ -14,7 +14,7 @@ from modules.compositor import Compositor
 from modules.viewer import FrameViewer
 
 from modules.MXFace2 import MXFace
-from modules.tracker import FaceTracker
+from modules.tracker2 import FaceTracker
 
 # Viewer for video frames  
 class Demo(QWidget):
@@ -56,19 +56,17 @@ class Demo(QWidget):
         self.capture_thread.stop()
         self.capture_thread.wait()
 
-        self.tracker.stop()
-        self.tracker.wait()
-
         self.compositor.stop()
-
         self.mxface.stop()
+        self.tracker.stop()
+
         super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video0"  # Replace with your video file path
+    video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
-    player = Demo(video_path, VIDEO_CONFIG['1080p'])
+    player = Demo(video_path, VIDEO_CONFIG['2k'])
     player.resize(1200, 800)
     player.show()
     sys.exit(app.exec())

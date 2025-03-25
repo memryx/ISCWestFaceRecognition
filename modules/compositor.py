@@ -32,12 +32,11 @@ class Compositor(QObject):
 
         for obj in composite_frame.tracked_objects:
             (left, top, right, bottom) = obj.bbox
-            name = obj.track_id
 
             #profile_name, distance_list = face_database.find(face.embedding)
             #face.person_id = profile_name
 
-            label = f'{name}'
+            label = f'{obj.name}({obj.track_id})'
             cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 0), 2)
             if False: #self.conf_checkbox.isChecked():
                 for i, (name, distance) in enumerate(distance_list):
