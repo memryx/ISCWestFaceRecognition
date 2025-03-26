@@ -1,6 +1,5 @@
-
+import os
 import sys
-import queue
 import cv2
 import numpy as np
 
@@ -62,7 +61,7 @@ class Demo(QMainWindow):
                                             video_config)
 
         self.face_database = FaceDatabase()
-        self.database_viewer_widget = DatabaseViewerWidget(self.face_database)
+        self.database_viewer = DatabaseViewerWidget(self.face_database)
 
 
         self.tracker = FaceTracker(self.mxface, self.face_database)
@@ -118,29 +117,63 @@ class Demo(QMainWindow):
         # Config panel with checkboxes
         self.control_layout.addWidget(self.config_panel)
 
-        #self.config_panel = QFrame()
-        #self.config_layout = QVBoxLayout(self.config_panel)
-        #self.keypoints_checkbox = QCheckBox("Draw Keypoints", self)
-        #self.keypoints_checkbox.setChecked(False)
-        #self.bbox_checkbox = QCheckBox("Draw Boxes", self)
-        #self.bbox_checkbox.setChecked(True)
-        #self.conf_checkbox = QCheckBox("Show Distances", self)
-        #self.conf_checkbox.setChecked(False)
-        #self.config_layout.addWidget(self.keypoints_checkbox)
-        #self.config_layout.addWidget(self.bbox_checkbox)
-        #self.config_layout.addWidget(self.conf_checkbox)
-        #self.control_layout.addWidget(self.config_panel)
-
         # Database loader
-        self.control_layout.addWidget(self.database_viewer_widget)
+        self.control_layout.addWidget(self.database_viewer)
 
         # Video viewer widget
         self.splitter.addWidget(self.viewer)
         self.splitter.setStretchFactor(1, 1)
 
-    def handle_viewer_mouse_click(self):
+    def handle_viewer_mouse_click(self, mouse_pos):
         """Click on the viewer; check if its within a face and save the profile."""
         print('clicked!')
+        tracker_frame = np.copy(self.tracker.current_frame.image)
+        tracker_dict = self.tracker.get_tracker_dict_copy()
+
+        # Iterate over each face to check if the click is inside any bounding box
+        found = False 
+        mouse_x, mouse_y = mouse_pos
+        for id, obj in tracker_dict.items():
+            (left, top, right, bottom) = obj.bbox
+            if left <= mouse_x <= right and top <= mouse_y <= bottom:
+                width = right - left
+                height = bottom - top
+
+                # Make the bounding box square with a 10px margin on all sides
+                margin = 10
+                bbox_size = max(width, height) + 2 * margin
+                center_x, center_y = left + width // 2, top + height // 2
+                x_start = max(0, center_x - bbox_size // 2)
+                x_end = min(tracker_frame.shape[1], center_x + bbox_size // 2)
+                y_start = max(0, center_y - bbox_size // 2)
+                y_end = min(tracker_frame.shape[0], center_y + bbox_size // 2)
+
+                # Crop the frame
+                cropped_frame = tracker_frame[y_start:y_end, x_start:x_end]
+
+                # Save the cropped image as a jpg file in the selected directory
+                profile_path = self.database_viewer.get_selected_directory()
+                if not profile_path:
+                    if obj.name == 'Unknown':
+                        new_profile = self.database_viewer.add_profile()
+                        profile_path = os.path.join(self.database_viewer.db_path, new_profile)
+                    else:
+                        profile_path = os.path.join(self.database_viewer.db_path, obj.person_id)
+
+                if os.path.exists(profile_path):
+                    i = 0
+                    while os.path.exists(os.path.join(profile_path, f"{i}.jpg")):
+                        i += 1
+                    filename = os.path.join(profile_path, f"{i}.jpg")
+
+                    print(f'Saving image to {filename}')
+                    cv2.imwrite(filename, cv2.cvtColor(cropped_frame, cv2.COLOR_RGB2BGR))
+                    self.database_viewer.load_profiles()
+                    #face_database.add_to_database(cropped_frame, filename)
+                    self.face_database.add_to_database(obj.embedding, filename)
+                found = True
+                break
+
         pass #TODO: Impelment
         # 1. get face locations
         # 2. check if mouse over face
@@ -165,9 +198,9 @@ class Demo(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    #video_path = "/dev/video2"  # Replace with your video file path
+    video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
-    video_path = 'assets/photos/joey.jpg'
+    #video_path = 'assets/photos/joey.jpg'
     player = Demo(video_path, VIDEO_CONFIG['1080p'])
     player.resize(1200, 800)
     player.show()

@@ -19,6 +19,7 @@ class TrackedObject:
     activated: bool = True
     last_recognition: float = 0.0
     distances: list[float] = field(default_factory=list)
+    embedding: np.ndarray = field(default_factory=lambda: np.zeros([128]))
 
 @dataclass
 class CompositeFrame:
@@ -244,6 +245,7 @@ class RecognitionThread(QThread):
 
             name, distances = self.face_tracker.database.find(embedding)
             tracked_obj = self.face_tracker.tracker_dict[track_id]
+            tracked_obj.embedding = embedding
             tracked_obj.name = name
             tracked_obj.distances = distances
             tracked_obj.last_recognition = time.time()
