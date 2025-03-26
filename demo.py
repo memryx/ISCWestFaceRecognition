@@ -127,12 +127,12 @@ class Demo(QMainWindow):
     def handle_viewer_mouse_click(self, mouse_pos):
         """Click on the viewer; check if its within a face and save the profile."""
         tracker_frame = np.copy(self.tracker.current_frame.image)
-        tracker_dict = self.tracker.get_tracker_dict_copy()
+        tracker_objects = self.tracker.get_activated_tracker_objects()
 
         # Iterate over each face to check if the click is inside any bounding box
         found = False 
         mouse_x, mouse_y = mouse_pos
-        for id, obj in tracker_dict.items():
+        for id, obj in tracker_objects:
             (left, top, right, bottom) = obj.bbox
             if left <= mouse_x <= right and top <= mouse_y <= bottom:
                 width = right - left
@@ -196,10 +196,10 @@ class Demo(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video0"  # Replace with your video file path
+    video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
     #video_path = 'assets/photos/joey.jpg'
-    player = Demo(video_path, VIDEO_CONFIG['1080p'])
+    player = Demo(video_path, VIDEO_CONFIG['2k'])
     player.resize(1200, 800)
     player.show()
     sys.exit(app.exec())

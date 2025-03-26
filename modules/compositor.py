@@ -29,10 +29,7 @@ class Compositor(QObject):
 
     def draw_objects(self, frame, tracked_objects):
 
-        for obj in tracked_objects.values():
-            if obj.activated == False:
-                continue
-
+        for obj in tracked_objects:
             (left, top, right, bottom) = obj.bbox
 
             label = f'{obj.name}({obj.track_id})'
@@ -65,6 +62,6 @@ class Compositor(QObject):
 
     def draw(self, frame):
         self.framerate.update()
-        tracked_objects = self.face_tracker.get_tracker_dict_copy()
-        frame = self.draw_objects(frame, tracked_objects)
+        tracked_objects = self.face_tracker.get_activated_tracker_objects()
+        frame = self.draw_objects(np.copy(frame), tracked_objects)
         self.frame_ready.emit(frame)

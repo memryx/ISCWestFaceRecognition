@@ -9,6 +9,7 @@ import time
 from .database import FaceDatabase
 from .utils import Framerate
 import threading  # Import the threading module for locks
+from copy import deepcopy
 
 @dataclass
 class TrackedObject:
@@ -112,10 +113,9 @@ class FaceTracker:
         new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
         return rotated_image, new_bbox
 
-    def get_tracker_dict_copy(self) -> dict:
-        """Return a thread-safe shallow copy of tracker_dict."""
+    def get_activated_tracker_objects(self) -> list:
         with self.tracker_dict_lock:
-            return dict(self.tracker_dict)
+            return [deepcopy(obj) for obj in self.tracker_dict.values() if obj.activated]
 
 
 class DetectionThread(QThread):
