@@ -97,7 +97,7 @@ class MXFace():
         self.recognize_input_q.put((None, None))
 
         self._stopped = True
-        self.accl.shutdown()
+        #self.accl.shutdown()
 
     def detect_put(self, image, block=True, timeout=None):
         annotated_frame = AnnotatedFrame(np.array(image))

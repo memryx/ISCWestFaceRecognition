@@ -4,7 +4,7 @@ import queue
 from dataclasses import dataclass, field
 import numpy as np
 from modules.MXFace2 import MXFace, AnnotatedFrame
-import cv2
+from pathlib import Path
 import time
 from .database import FaceDatabase
 from .utils import Framerate
@@ -48,9 +48,10 @@ class FaceTracker:
     RecognitionThread: continuously pulls recognition results from mxface.recognize_get()
     and updates the tracker_dict with the recognized name.
     """
-    def __init__(self, mxface: MXFace, face_database: FaceDatabase):
+    def __init__(self, face_database: FaceDatabase):
         self.tracker = BYTETracker()
-        self.mxface = mxface
+        #self.mxface = MockMXFace(Path('assets/models'))
+        self.mxface = MXFace(Path('assets/models'))
         self.tracker_dict = {}  # Mapping from track_id to TrackedObject
         self.tracker_dict_lock = threading.Lock()  # Lock for tracker_dict
         self.current_frame = AnnotatedFrame(np.zeros([10, 10, 3]))
@@ -70,6 +71,7 @@ class FaceTracker:
         self.recognition_thread.stop()
         self.detection_thread.wait()
         self.recognition_thread.wait()
+        self.mxface.stop()
 
     def detect(self, frame):
         try:
@@ -98,11 +100,11 @@ class DetectionThread(QThread):
         self.framerate = Framerate()
 
     def _update_detections(self):
-        self.framerate.update()
 
         try:
             annotated_frame = self.face_tracker.mxface.detect_get(timeout=0.033)
             self.face_tracker.current_frame = annotated_frame
+            self.framerate.update()
         except queue.Empty:
             return
 

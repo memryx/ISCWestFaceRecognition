@@ -19,9 +19,6 @@ from modules.capture import CaptureThread, VIDEO_CONFIG
 from modules.compositor import Compositor
 from modules.viewer import FrameViewer
 from modules.database import FaceDatabase, DatabaseViewerWidget
-
-
-from modules.MXFace2 import MXFace, MockMXFace
 from modules.tracker import FaceTracker
 
 class ConfigPanel(QFrame):
@@ -52,17 +49,14 @@ class Demo(QMainWindow):
         self.viewer = FrameViewer()
 
         # Set up video-related attributes
-        self.mxface = MXFace(Path('assets/models'))
-        #self.mxface = MockMXFace(Path('assets/models'))
         self.capture_thread = CaptureThread(video_path, 
-                                            self.mxface, 
                                             video_config)
 
         self.face_database = FaceDatabase()
         self.database_viewer = DatabaseViewerWidget(self.face_database)
 
 
-        self.tracker = FaceTracker(self.mxface, self.face_database)
+        self.tracker = FaceTracker(self.face_database)
         self.compositor = Compositor(self.tracker)
 
         self.config_panel = ConfigPanel(self)
@@ -190,7 +184,6 @@ class Demo(QMainWindow):
         self.capture_thread.stop()
         self.capture_thread.wait()
         self.tracker.stop()
-        self.mxface.stop()
         self.fps_timer.stop()
         super().closeEvent(event)
 
@@ -199,7 +192,7 @@ if __name__ == "__main__":
     video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
     #video_path = 'assets/photos/joey.jpg'
-    player = Demo(video_path, VIDEO_CONFIG['2k'])
+    player = Demo(video_path, VIDEO_CONFIG['1080p'])
     player.resize(1200, 800)
     player.show()
     sys.exit(app.exec())

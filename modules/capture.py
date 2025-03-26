@@ -39,11 +39,10 @@ VIDEO_CONFIG = {
 class CaptureThread(QThread):
     frame_ready = Signal(np.ndarray)
 
-    def __init__(self, video_source, mxface, video_config=None):
+    def __init__(self, video_source, video_config=None):
         super().__init__()
         self.video_config = video_config
         self.video_source = video_source
-        self.mxface = mxface
         self.stop_threads = False
         self.pause = False
         self.cur_frame = None
@@ -62,6 +61,7 @@ class CaptureThread(QThread):
         while not self.stop_threads:
             self.framerate.update()
             self.frame_ready.emit(frame)
+            time.sleep(1 / 120)
 
     def _read_stream(self):
         """Read video file or stream"""
@@ -72,6 +72,7 @@ class CaptureThread(QThread):
             self.video_config.set(cap)
 
         while not self.stop_threads:
+            self.framerate.update()
             if self.pause:
                 time.sleep(0.1)
                 continue
@@ -91,6 +92,7 @@ class CaptureThread(QThread):
         cap = cv2.VideoCapture(self.video_source)
 
         while not self.stop_threads:
+            self.framerate.update()
             if self.pause:
                 time.sleep(0.1)
                 continue
@@ -101,10 +103,10 @@ class CaptureThread(QThread):
                 continue
 
             frame = np.array(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self.frame_ready.emit(frame)
 
             # Simulating real-time video stream (30fps)
             #start = time.time()
-            self.mxface.detect_put(np.array(frame), block=False)
             #dt = time.time() - start
             #time.sleep(max(0.033-dt, 0))  
 
