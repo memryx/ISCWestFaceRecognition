@@ -6,6 +6,7 @@ import memryx as mx
 import numpy as np
 from dataclasses import dataclass, field
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,15 +82,17 @@ class MXFace():
                 self.detect_get(timeout=0.1)
             except queue.Empty:
                 continue
+        self.detect_input_q.put(None)
+        print('detection drained')
 
         while self._outstanding_recognition_frames > 0:
             try:
                 self.recognize_get(timeout=0.1)
             except queue.Empty:
                 continue
-            
-        self.detect_input_q.put(None)
+        print('recognized drained')
         self.recognize_input_q.put((None, None))
+
         self._stopped = True
         self.accl.shutdown()
 
@@ -103,14 +106,27 @@ class MXFace():
         self._outstanding_detection_frames -= 1
         return annotated_frame
 
-    def recognize_put(self, face, block=True, timeout=None):
+    def recognize_put(self, obj, block=True, timeout=None):
         self._outstanding_recognition_frames += 1
-        self.recognize_input_q.put(face, block, timeout)
+        (id, frame, box) = obj
+        face = self._extract_face(frame, box)
+        self.recognize_input_q.put((id, face), block, timeout)
 
     def recognize_get(self, block=True, timeout=None):
-        face_embedding = self.recognize_output_q.get(block, timeout)
+        labeled_embedding = self.recognize_output_q.get(block, timeout)
         self._outstanding_recognition_frames -= 1
-        return face_embedding
+        return labeled_embedding
+
+    def _extract_face(self, image: np.ndarray, xyxy: tuple[int, int, int, int]) -> np.ndarray:
+        x1, y1, x2, y2 = xyxy
+        orig_h, orig_w, _ = image.shape
+        x1 = max(int(x1), 0)
+        y1 = max(int(y1), 0)
+        x2 = min(int(x2), orig_w)
+        y2 = min(int(y2), orig_h)
+        face = image[y1:y2, x1:x2]
+        return face
+
 
     ### Async Functions #######################################################
     def _detector_source(self):

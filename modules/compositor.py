@@ -10,12 +10,9 @@ from .utils import Framerate
 class Compositor(QObject):
     frame_ready = Signal(np.ndarray)
 
-    def __init__(self, face_tracker, interval, parent=None):
+    def __init__(self, face_tracker, parent=None):
         super().__init__(parent)
         self.face_tracker = face_tracker
-        self.timer = QTimer(self)
-        self.timer.setInterval(interval)
-        self.timer.timeout.connect(self.poll_queue)
         self.framerate = Framerate()
 
         # Config
@@ -30,21 +27,9 @@ class Compositor(QObject):
     def update_mouse_pos(self, pos):
         self.mouse_position = pos
 
-    def start(self):
-        self.timer.start()
+    def draw_objects(self, frame, tracked_objects):
 
-    def stop(self):
-        print("Shutting down Compositor")
-        self.timer.stop()
-
-    def draw_boxes(self, composite_frame):
-
-        faces = []
-        frame = np.copy(composite_frame.image)
-        for tracked_object in self.face_tracker.tracker_dict.values():
-            faces.append((tracked_object.bbox, tracked_object.name))
-
-        for obj in composite_frame.tracked_objects:
+        for obj in tracked_objects.values():
             (left, top, right, bottom) = obj.bbox
 
             label = f'{obj.name}({obj.track_id})'
@@ -75,13 +60,8 @@ class Compositor(QObject):
                     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         return frame
 
-    def poll_queue(self):
+    def draw(self, frame):
         self.framerate.update()
-        try:
-            # Use get_nowait so that we do not block the timer callback
-            composite_frame = self.face_tracker.composite_queue.get_nowait() 
-            frame = self.draw_boxes(composite_frame)
-
-            self.frame_ready.emit(frame)
-        except queue.Empty:
-            pass  # No new frame available at the moment
+        tracked_objects = self.face_tracker.get_tracker_dict_copy()
+        frame = self.draw_objects(frame, tracked_objects)
+        self.frame_ready.emit(frame)

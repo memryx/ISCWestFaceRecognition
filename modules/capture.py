@@ -37,6 +37,7 @@ VIDEO_CONFIG = {
 
 # Thread for reading video frames
 class CaptureThread(QThread):
+    frame_ready = Signal(np.ndarray)
 
     def __init__(self, video_source, mxface, video_config=None):
         super().__init__()
@@ -52,23 +53,17 @@ class CaptureThread(QThread):
     def _read_image(self):
         """Read image file and simulate video stream"""
         frame = cv2.imread(self.video_source)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
         if frame is None:
             print("Failed to load image.")
             return
 
         while not self.stop_threads:
             self.framerate.update()
+            self.frame_ready.emit(frame)
 
-            #if not self.mxface.full():
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            try:
-                self.mxface.detect_put(np.array(rgb_frame), block=False)
-            except queue.Full:
-                pass
-
-            #time.sleep(1 / 30)  # Simulate 30fps for static image
-
-    def _read_video(self):
+    def _read_stream(self):
         """Read video file or stream"""
 
         # Handle video case
@@ -83,27 +78,35 @@ class CaptureThread(QThread):
 
             ret, frame = cap.read()
             if not ret:
-                if is_video(self.video_source):
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                else:
-                    print("Stream ended or failed to grab frame.")
-                    break
+                print("Stream ended or failed to grab frame.")
+                break
 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            self.cur_frame = np.array(rgb_frame)
+            frame = np.array(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self.frame_ready.emit(frame)
+
+        cap.release()
+
+    def _read_video(self):
+        """Read stream"""
+        cap = cv2.VideoCapture(self.video_source)
+
+        while not self.stop_threads:
+            if self.pause:
+                time.sleep(0.1)
+                continue
+
+            ret, frame = cap.read()
+            if not ret:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
+
+            frame = np.array(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
             # Simulating real-time video stream (30fps)
-            if is_video(self.video_source):
-                start = time.time()
-                self.mxface.detect_put(np.array(rgb_frame), block=False)
-                dt = time.time() - start
-                time.sleep(max(0.033-dt, 0))  
-            else:
-                try:
-                    self.mxface.detect_put(self.cur_frame, timeout=0.033)
-                except queue.Full:
-                    print('Dropped Frame')
+            #start = time.time()
+            self.mxface.detect_put(np.array(frame), block=False)
+            #dt = time.time() - start
+            #time.sleep(max(0.033-dt, 0))  
 
         cap.release()
 
@@ -111,8 +114,10 @@ class CaptureThread(QThread):
         """Read video frames and emit signal"""
         if is_image(self.video_source):
             self._read_image()
-        else:
+        elif is_video(self.video_source):
             self._read_video()
+        else:
+            self._read_stream()
 
     def toggle_play(self):
         self.pause = not self.pause

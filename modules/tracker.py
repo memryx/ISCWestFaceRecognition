@@ -21,10 +21,12 @@ class TrackedObject:
     distances: list[float] = field(default_factory=list)
     embedding: np.ndarray = field(default_factory=lambda: np.zeros([128]))
 
+
 @dataclass
 class CompositeFrame:
     image: np.ndarray
     tracked_objects: list
+
 
 def compute_iou(boxA, boxB):
     # boxA and boxB are (x1, y1, x2, y2)
@@ -36,6 +38,7 @@ def compute_iou(boxA, boxB):
     boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
     boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
     return interArea / float(boxAArea + boxBArea - interArea)
+
 
 class FaceTracker:
     """
@@ -66,6 +69,12 @@ class FaceTracker:
         self.recognition_thread.stop()
         self.detection_thread.wait()
         self.recognition_thread.wait()
+
+    def detect(self, frame):
+        try:
+            self.mxface.detect_put(frame, block=False)
+        except queue.Full:
+            pass
 
     def _extract_face(self, image: np.ndarray, xyxy: tuple[int, int, int, int]) -> np.ndarray:
         x1, y1, x2, y2 = xyxy
@@ -107,6 +116,7 @@ class FaceTracker:
         """Return a thread-safe shallow copy of tracker_dict."""
         with self.tracker_dict_lock:
             return dict(self.tracker_dict)
+
 
 class DetectionThread(QThread):
     """
@@ -162,9 +172,10 @@ class DetectionThread(QThread):
 
                     # Refresh active track if refresh_interval elapsed.
                     if current_time - tracked_obj.last_recognition > self.refresh_interval:
-                        face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
+                        #face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                         try:
-                            self.face_tracker.mxface.recognize_put((track_id, face), block=False)
+                            #self.face_tracker.mxface.recognize_put((track_id, face), block=False)
+                            self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
                         except queue.Full:
                             pass
                 else:
@@ -176,22 +187,15 @@ class DetectionThread(QThread):
                         last_recognition=current_time
                     )
                     self.face_tracker.tracker_dict[track_id] = new_obj
-                    face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
+                    #face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                     try:
-                        self.face_tracker.mxface.recognize_put((track_id, face), block=False)
+                        self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
                     except queue.Full:
                         pass
 
         # Push composite frame (image and currently activated objects) to the queue
         with self.face_tracker.tracker_dict_lock:
             activated_objects = [obj for obj in self.face_tracker.tracker_dict.values() if obj.activated]
-
-        try:
-            self.face_tracker.composite_queue.put_nowait(
-                CompositeFrame(annotated_frame.image, activated_objects)
-            )
-        except queue.Full:
-            pass
 
     def run(self):
         while not self.stop_threads:
@@ -214,6 +218,7 @@ class DetectionThread(QThread):
                 best_iou = iou
                 best_idx = idx
         return annotated_frame.keypoints[best_idx]
+
 
 class RecognitionThread(QThread):
     """

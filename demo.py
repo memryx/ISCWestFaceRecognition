@@ -24,7 +24,6 @@ from modules.database import FaceDatabase, DatabaseViewerWidget
 from modules.MXFace2 import MXFace, MockMXFace
 from modules.tracker import FaceTracker
 
-
 class ConfigPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,7 +41,6 @@ class ConfigPanel(QFrame):
         self.framerate_checkbox = QCheckBox("Print framerates")
         self.framerate_checkbox.setChecked(False)
         layout.addWidget(self.framerate_checkbox)
-
 
 # Viewer for video frames  
 class Demo(QMainWindow):
@@ -65,11 +63,14 @@ class Demo(QMainWindow):
 
 
         self.tracker = FaceTracker(self.mxface, self.face_database)
-        self.compositor = Compositor(self.tracker, 16)
+        self.compositor = Compositor(self.tracker)
 
         self.config_panel = ConfigPanel(self)
 
         # Connections Connect compositor's signal to the viewer's update slot
+        self.capture_thread.frame_ready.connect(self.compositor.draw)
+        self.capture_thread.frame_ready.connect(self.tracker.detect)
+
         self.compositor.frame_ready.connect(self.viewer.update_frame)
         self.viewer.mouse_move.connect(self.compositor.update_mouse_pos)
         self.viewer.mouse_click.connect(self.handle_viewer_mouse_click)
@@ -80,7 +81,6 @@ class Demo(QMainWindow):
         # Start the threads
         self.tracker.start()
         self.capture_thread.start()
-        self.compositor.start()
 
         # For frame rate calculation
         self.timestamps = [0] * 30
@@ -126,7 +126,6 @@ class Demo(QMainWindow):
 
     def handle_viewer_mouse_click(self, mouse_pos):
         """Click on the viewer; check if its within a face and save the profile."""
-        print('clicked!')
         tracker_frame = np.copy(self.tracker.current_frame.image)
         tracker_dict = self.tracker.get_tracker_dict_copy()
 
@@ -158,7 +157,7 @@ class Demo(QMainWindow):
                         new_profile = self.database_viewer.add_profile()
                         profile_path = os.path.join(self.database_viewer.db_path, new_profile)
                     else:
-                        profile_path = os.path.join(self.database_viewer.db_path, obj.person_id)
+                        profile_path = os.path.join(self.database_viewer.db_path, obj.name)
 
                 if os.path.exists(profile_path):
                     i = 0
@@ -190,7 +189,6 @@ class Demo(QMainWindow):
         # Stop threads and release video capture on close
         self.capture_thread.stop()
         self.capture_thread.wait()
-        self.compositor.stop()
         self.tracker.stop()
         self.mxface.stop()
         self.fps_timer.stop()
