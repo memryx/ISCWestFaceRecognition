@@ -204,13 +204,13 @@ class RecognitionThread(QThread):
         except queue.Empty:
             return
 
-        if track_id in self.face_tracker.tracker_dict:
+        if track_id not in self.face_tracker.tracker_dict:
             return 
 
         name, distances = self.face_tracker.database.find(embedding)
         tracked_obj = self.face_tracker.tracker_dict[track_id]
         tracked_obj.name = name
-        tracked_obj.distance = distances[0]
+        tracked_obj.distance = distances[0] if distances else 0
         tracked_obj.last_recognition = time.time()
 
     def stop(self):

@@ -50,12 +50,11 @@ class MXFace():
 
     def __init__(self, models_dir: Path):
         self._stopped = False
-        self._outstanding_frames = 0
         self.do_eye_alignment = True
 
         self.detect_input_q  = queue.Queue(maxsize=1)
         self.detect_output_q  = queue.Queue(maxsize=1)
-        self.detect_bypass_q = queue.Queue(maxsize=3)
+        self.detect_bypass_q = queue.Queue(maxsize=4)
 
         self.recognize_input_q  = queue.Queue(maxsize=1)
         self.recognize_output_q  = queue.Queue(maxsize=1)

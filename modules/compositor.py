@@ -3,13 +3,20 @@ import numpy as np
 import cv2
 
 from PySide6.QtCore import QTimer, QObject, Signal
+from PySide6.QtWidgets import QCheckBox
 
 from .utils import Framerate
+
+class CompositorConfig:
+    show_keypoints: bool = False
+    show_boxes: bool = True
+    show_distances: bool = False
+    mouse_position: tuple[int, int] = (-1,-1)
 
 class Compositor(QObject):
     frame_ready = Signal(np.ndarray)
 
-    def __init__(self, face_tracker, interval=33, parent=None):
+    def __init__(self, face_tracker, interval, parent=None):
         super().__init__(parent)
         self.face_tracker = face_tracker
         self.timer = QTimer(self)
@@ -17,8 +24,14 @@ class Compositor(QObject):
         self.timer.timeout.connect(self.poll_queue)
         self.framerate = Framerate()
 
-        self.show_conf = False
+        # Config
+        self.config = CompositorConfig()
 
+        self.bbox_checkbox = QCheckBox("Draw Boxes")
+        self.bbox_checkbox.setChecked(False)
+
+    def update_mouse_pos(self, pos):
+        self.mouse_position = pos
 
     def start(self):
         self.timer.start()
@@ -30,15 +43,12 @@ class Compositor(QObject):
     def draw_boxes(self, composite_frame):
 
         faces = []
-        frame = composite_frame.image
+        frame = np.copy(composite_frame.image)
         for tracked_object in self.face_tracker.tracker_dict.values():
             faces.append((tracked_object.bbox, tracked_object.name))
 
         for obj in composite_frame.tracked_objects:
             (left, top, right, bottom) = obj.bbox
-
-            #profile_name, distance_list = face_database.find(face.embedding)
-            #face.person_id = profile_name
 
             label = f'{obj.name}({obj.track_id})'
             cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 0), 2)
@@ -49,7 +59,7 @@ class Compositor(QObject):
                     label = f'{name}: {distance:.1f}'
                     cv2.putText(frame, label, (left + 10, top + 10 + 20 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
 
-            if True: #self.bbox_checkbox.isChecked():
+            if self.bbox_checkbox.isChecked(): 
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
 
             # Draw keypoints if checkbox is checked
@@ -58,12 +68,12 @@ class Compositor(QObject):
                     cv2.circle(frame, (x, y), 5, (255, 0, 0), -1)
 
             # Draw semi-transparent rectangle if mouse is inside bounding box
-            if False: #self.mouse_position:
+            if self.mouse_position:
                 mouse_x, mouse_y = self.mouse_position
-                if left <= mouse_x <= left + width and top <= mouse_y <= top + height:
+                if left <= mouse_x <= right and top <= mouse_y <= bottom:
                     overlay = frame.copy()
                     alpha = 0.5  # Transparency factor
-                    cv2.rectangle(overlay, (left, top), (left + width, top + height), (0, 0, 255), -1)
+                    cv2.rectangle(overlay, (left, top), (right, bottom), (0, 0, 255), -1)
                     # Apply the overlay
                     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         return frame

@@ -37,7 +37,7 @@ def cosine_similarity(vector1, vector2):
 class FaceDatabase:
     cosine_threshold = 0.48
 
-    def __init__(self, path='assets/db'):
+    def __init__(self, path='assets/friends_db'):
         self.database = defaultdict(dict)
         self.database_path = Path(path)
 
