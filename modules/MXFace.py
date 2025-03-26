@@ -6,7 +6,16 @@ import memryx as mx
 import numpy as np
 from dataclasses import dataclass, field
 
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Face:
+    """container for passing a face around"""
+    track_id: int
+    face: np.ndarray
+
 
 @dataclass
 class DetectedFace():
@@ -22,30 +31,35 @@ class DetectedFace():
     # Embedding
     embedding: np.ndarray = field(default_factory=lambda: np.zeros([128]))
 
+
 @dataclass
 class AnnotatedFrame():
     image: np.ndarray
-    num_detections: int = 0
-    detected_faces: list[DetectedFace] = field(default_factory=lambda: [])
-    recognize: bool = True
-    _static: bool = False
+    boxes: list[tuple[int, int, int, int]] = field(default_factory=lambda: [])
+    keypoints: list[list[tuple[int,int]]] = field(default_factory=lambda: [])
+    scores: list = field(default_factory=lambda: [])
+
+
+    @property
+    def num_detected_faces(self):
+        return len(self.scores)
+
 
 class MXFace():
-    cosine_threshold = 0.48
     detector_imgsz = 640
     recognizer_imgsz = 160 
 
     def __init__(self, models_dir: Path):
         self._stopped = False
-        self._outstanding_frames = 0
         self.do_eye_alignment = True
 
-        self.input_q  = queue.Queue(maxsize=1)
-        self.stage0_q = queue.Queue(maxsize=2)
-        self.stage1_q = queue.Queue(maxsize=4)
-        self.stage2_q = queue.Queue(maxsize=4)
-        self.output_q = queue.Queue(maxsize=1)
-        self.static_output_q = queue.Queue(maxsize=1)
+        self.detect_input_q  = queue.Queue(maxsize=1)
+        self.detect_output_q  = queue.Queue(maxsize=1)
+        self.detect_bypass_q = queue.Queue(maxsize=4)
+
+        self.recognize_input_q  = queue.Queue(maxsize=1)
+        self.recognize_output_q  = queue.Queue(maxsize=1)
+        self.recognize_bypass_q = queue.Queue(maxsize=4)
 
         self.accl = mx.AsyncAccl(str(Path(models_dir) / 'yolov8n_facenet.dfp'))
         self.accl.set_postprocessing_model(str(Path(models_dir) / 'yolov8n-face_post.onnx'), model_idx=1)
@@ -55,72 +69,109 @@ class MXFace():
         self.accl.connect_input(self._recognizer_source, model_idx=0)
         self.accl.connect_output(self._recognizer_sink, model_idx=0)
 
-    def __del__(self):
-        if not self._stopped:
-            self.stop()
+        self._outstanding_detection_frames = 0
+        self._outstanding_recognition_frames = 0
 
     ### Public Functions ######################################################
-    @staticmethod
-    def cosine_similarity(vector1, vector2):
-        # Ensure the vectors are numpy arrays
-        vector1 = np.array(vector1)
-        vector2 = np.array(vector2)
-        
-        # Compute the dot product and magnitudes
-        dot_product = np.dot(vector1, vector2)
-        magnitude1 = np.linalg.norm(vector1)
-        magnitude2 = np.linalg.norm(vector2)
-        
-        # Handle the case where the magnitude is zero to avoid division by zero
-        if magnitude1 == 0 or magnitude2 == 0:
-            return 0.0
-        
-        # Compute cosine similarity
-        cosine_sim = dot_product / (magnitude1 * magnitude2)
-        
-        return cosine_sim
-
-    def infer(self, image):
-        annotated_frame = AnnotatedFrame(np.array(image), _static=True)
-        self.input_q.put(annotated_frame)
-        return self.static_output_q.get()
 
     def stop(self):
         logger.info('stop')
-        while self._outstanding_frames > 0:
+        print('Shutting down MXFace')
+
+        while self._outstanding_detection_frames > 0:
             try:
-                self.get(timeout=0.1)
+                self.detect_get(timeout=0.1)
             except queue.Empty:
+                print('outstanding detection timeout')
                 continue
-            
-        self.input_q.put(None)
-        self.stage1_q.put(None)
+        self.detect_input_q.put(None)
+        print('detection drained')
+
+        while self._outstanding_recognition_frames > 0:
+            try:
+                self.recognize_get(timeout=0.1)
+            except queue.Empty:
+                print('outstanding recognition timeout')
+                continue
+        print('recognized drained')
+        self.recognize_input_q.put((None, None))
+
         self._stopped = True
+        #self.accl.shutdown()
 
-    def put(self, image, block=True, timeout=None):
+    def detect_put(self, image, block=True, timeout=None):
         annotated_frame = AnnotatedFrame(np.array(image))
-        self.input_q.put(annotated_frame, block, timeout)
-        self._outstanding_frames += 1
+        self.detect_input_q.put(annotated_frame, block, timeout)
+        self._outstanding_detection_frames += 1
 
-    def get(self, block=True, timeout=None):
-        self._outstanding_frames -= 1
-        annotated_frame = self.output_q.get(block, timeout)
+    def detect_get(self, block=True, timeout=None):
+        annotated_frame = self.detect_output_q.get(block, timeout)
+        self._outstanding_detection_frames -= 1
         return annotated_frame
 
-    def empty(self):
-        return self.output_q.empty() and self.input_q.empty()  
+    def recognize_put(self, obj, block=True, timeout=None):
+        (id, frame, box, eyes) = obj
+        face = self._extract_face(frame, box, eyes)
+        self.recognize_input_q.put((id, face), block, timeout)
+        self._outstanding_recognition_frames += 1
 
-    def full(self):
-        return self.input_q.full()
+    def recognize_get(self, block=True, timeout=None):
+        labeled_embedding = self.recognize_output_q.get(block, timeout)
+        self._outstanding_recognition_frames -= 1
+        return labeled_embedding
+
+    def _extract_face(self, 
+                      image: np.ndarray, 
+                      xyxy: tuple[int, int, int, int], 
+                      eyes: tuple[tuple[int,int]]) -> np.ndarray:
+        x1, y1, x2, y2 = xyxy
+        orig_h, orig_w, _ = image.shape
+        x1 = max(int(x1), 0)
+        y1 = max(int(y1), 0)
+        x2 = min(int(x2), orig_w)
+        y2 = min(int(y2), orig_h)
+        face = image[y1:y2, x1:x2]
+
+        if self.do_eye_alignment:
+            face, bbox = self._align_eyes(face, xyxy, eyes)
+
+        return face
+
+    def _align_eyes(self, image: np.ndarray, bbox, eyes):
+        right_eye = eyes[0]
+        left_eye = eyes[1]
+        dx = left_eye[0] - right_eye[0]
+        dy = left_eye[1] - right_eye[1]
+        angle = np.degrees(np.arctan2(dy, dx))
+        rotation_angle = angle
+        (h, w) = image.shape[:2]
+        center = (w // 2, h // 2)
+        M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+        rotated_image = cv2.warpAffine(image, M, (w, h))
+        x1, y1, x2, y2 = bbox
+        corners = np.array([
+            [x1, y1],
+            [x2, y1],
+            [x1, y2],
+            [x2, y2]
+        ], dtype=np.float32).reshape(-1, 1, 2)
+        transformed = cv2.transform(corners, M).reshape(-1, 2)
+        x_min = int(np.min(transformed[:, 0]))
+        y_min = int(np.min(transformed[:, 1]))
+        x_max = int(np.max(transformed[:, 0]))
+        y_max = int(np.max(transformed[:, 1]))
+        new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
+        return rotated_image, new_bbox
+
 
     ### Async Functions #######################################################
     def _detector_source(self):
-        annotated_frame = self.input_q.get()
+        annotated_frame = self.detect_input_q.get()
         
         if annotated_frame is None:
             return None
 
-        self.stage0_q.put(annotated_frame)
+        self.detect_bypass_q.put(annotated_frame)
 
         ifmap = self._letterbox_image(
             annotated_frame.image, 
@@ -130,63 +181,35 @@ class MXFace():
         return ifmap.astype(np.float32)
 
     def _detector_sink(self, *outputs):
-        annotated_frame = self.stage0_q.get()
+        annotated_frame = self.detect_bypass_q.get()
         image = annotated_frame.image
         detections = self._postprocess_detector(image, outputs[0])
 
-        # Count found faces
-        annotated_frame.num_detections = len(detections['boxes'])
-        if  annotated_frame.num_detections == 0:
-            self.output_q.put(annotated_frame)
-            return 
-
-        # Extract Faces
-        boxes = detections['boxes'] 
-        keypoints = detections['keypoints'] 
-        detected_faces = []
-        for _, (bbox, kpts) in enumerate(zip(boxes, keypoints)):
-            detected_faces.append(DetectedFace(bbox, kpts))
-
-        if annotated_frame.recognize:
-            for detected_face in detected_faces:
-                self.stage1_q.put((annotated_frame, detected_face))
-        else:
-            annotated_frame.detected_faces = detected_faces
-            if annotated_frame._static:
-                self.static_output_q.put(annotated_frame)
-            else:
-                self.output_q.put(annotated_frame)
+        annotated_frame.boxes = detections['boxes']
+        annotated_frame.keypoints = detections['keypoints']
+        annotated_frame.scores = detections['scores'] 
+        self.detect_output_q.put(annotated_frame)
 
     def _recognizer_source(self):
-        data = self.stage1_q.get()
+        track_id, detected_face = self.recognize_input_q.get()
 
-        if data is None:
+        if detected_face is None:
             return None
 
-        # Extract
-        annotated_frame, detected_face = data
-        detected_face.image = self._extract_face(annotated_frame.image, detected_face)
-
-        # Put to final stage
-        self.stage2_q.put(data)
+        self.recognize_bypass_q.put(track_id)
 
         face = self._letterbox_image(
-            detected_face.image, 
+            detected_face, 
             (self.recognizer_imgsz, self.recognizer_imgsz)
         )
         face = face / 255.0
         return face.astype(np.float32)
 
     def _recognizer_sink(self, *outputs):
-        annotated_frame, detected_face = self.stage2_q.get()
-        detected_face.embedding = np.squeeze(outputs[0])
-        annotated_frame.detected_faces.append(detected_face)
+        track_id = self.recognize_bypass_q.get()
+        embedding = np.squeeze(outputs[0])
 
-        if len(annotated_frame.detected_faces) == annotated_frame.num_detections:
-            if annotated_frame._static:
-                self.static_output_q.put(annotated_frame)
-            else:
-                self.output_q.put(annotated_frame)
+        self.recognize_output_q.put((track_id, embedding))
 
     ### Pre / Post Processing steps ###########################################
     def _letterbox_image(self, image, target_size):
@@ -246,100 +269,6 @@ class MXFace():
             new_kpts.append((int(x_adj), int(y_adj)))
 
         return bbox, new_kpts
-
-    def _align_eyes(self, image: np.ndarray, detected_face):
-        # write the code here
-
-        right_eye = detected_face.keypoints[0]
-        left_eye = detected_face.keypoints[1]
-        
-        # Compute the angle between the eyes.
-        dx = left_eye[0] - right_eye[0]
-        dy = left_eye[1] - right_eye[1]
-        angle = np.degrees(np.arctan2(dy, dx))
-
-        # To align the eyes horizontally, rotate by the negative of this angle.
-        rotation_angle = angle
-
-        # Compute the rotation matrix.
-        (h, w) = image.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
-        # Rotate the image.
-        rotated_image = cv2.warpAffine(image, M, (w, h))
-        
-        # Assume the first bounding box is used; expected format: (x, y, w, h)
-        x, y, bw, bh = detected_face.bbox
-        # Define the four corners of the bounding box.
-        corners = np.array([
-            [x, y],
-            [x + bw, y],
-            [x, y + bh],
-            [x + bw, y + bh]
-        ], dtype=np.float32).reshape(-1, 1, 2)
-        # Transform the corners using the same affine matrix.
-        transformed = cv2.transform(corners, M).reshape(-1, 2)
-        # Compute the minimal axis-aligned bounding box that encloses the transformed corners.
-        x_min = int(np.min(transformed[:, 0]))
-        y_min = int(np.min(transformed[:, 1]))
-        x_max = int(np.max(transformed[:, 0]))
-        y_max = int(np.max(transformed[:, 1]))
-        new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
-
-        return rotated_image, new_bbox
-
-    def _extract_face2(self, image: np.ndarray, detected_face) -> np.ndarray:
-        """
-        """
-
-        if self.do_eye_alignment:
-            image, bbox = self._align_eyes(image, detected_face)
-            x, y, w, h = bbox
-        else:
-            x, y, w, h = detected_face.bbox
-
-        # Get the original image dimensions
-        orig_h, orig_w, _ = image.shape
-
-        # Compute the new top-left and bottom-right corners in the original image
-        x1 = max(int(x), 0)
-        y1 = max(int(y), 0)
-        x2 = min(int(x + w), orig_w)
-        y2 = min(int(y + h), orig_h)
-    
-        # Extract the face from the original image using the adjusted bounding box
-        face = image[y1:y2, x1:x2]
-
-        return face
-
-    def _extract_face(self, image: np.ndarray, detected_face) -> np.ndarray:
-        """
-        """
-
-        x, y, w, h = detected_face.bbox
-
-        # Get the original image dimensions
-        orig_h, orig_w, _ = image.shape
-
-        # Compute the new top-left and bottom-right corners in the original image
-        x1 = max(int(x), 0)
-        y1 = max(int(y), 0)
-        x2 = min(int(x + w), orig_w)
-        y2 = min(int(y + h), orig_h)
-
-        # Wide crop
-        #x1 = max(int(x - 0.05 * w), 0)
-        #y1 = max(int(y - 0.05 * h), 0)
-        #x2 = min(int(x + 1.05 * w), orig_w)
-        #y2 = min(int(y + 1.05 * h), orig_h)
-    
-        # Extract the face from the original image using the adjusted bounding box
-        face = image[y1:y2, x1:x2]
-
-        if self.do_eye_alignment:
-            face, bbox = self._align_eyes(face, detected_face)
-
-        return face
 
     def _postprocess_detector(self, image, output, conf_threshold=0.7, nms_threshold=0.7):
         """
@@ -449,4 +378,30 @@ class MXFace():
             order = order[indices_to_keep + 1]  # Update the order by excluding the boxes with high IoU
     
         return np.array(keep)
+
+
+class MockMXFace(MXFace):
+
+    def __init__(self, models_dir: Path):
+        self.detect_q  = queue.Queue(maxsize=1)
+        self.recognize_q  = queue.Queue(maxsize=1)
+
+    def stop(self):
+        pass
+
+    def detect_put(self, image, block=True, timeout=None):
+        annotated_frame = AnnotatedFrame(np.array(image))
+        self.detect_q.put(annotated_frame, block, timeout)
+
+    def detect_get(self, block=True, timeout=None):
+        annotated_frame = self.detect_q.get(block, timeout)
+        return annotated_frame
+
+    def recognize_put(self, obj, block=True, timeout=None):
+        """obj: (track_id, frame, xyxy, eyes)"""
+        self.recognize_q.put(obj, block, timeout)
+
+    def recognize_get(self, block=True, timeout=None):
+        (id, _) = self.recognize_q.get(block, timeout)
+        return (id, np.zeros([128]))
 

@@ -3,7 +3,7 @@ from modules.bytetracker import BYTETracker
 import queue
 from dataclasses import dataclass, field
 import numpy as np
-from modules.MXFace2 import MXFace, AnnotatedFrame
+from modules.MXFace import MXFace, AnnotatedFrame
 from pathlib import Path
 import time
 from .database import FaceDatabase
