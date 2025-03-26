@@ -8,7 +8,7 @@ import cv2
 import time
 from .database import FaceDatabase
 from .utils import Framerate
-
+import threading  # Import the threading module for locks
 
 @dataclass
 class TrackedObject:
@@ -20,12 +20,10 @@ class TrackedObject:
     last_recognition: float = 0.0
     distances: list[float] = field(default_factory=list)
 
-
 @dataclass
 class CompositeFrame:
     image: np.ndarray
     tracked_objects: list
-
 
 def compute_iou(boxA, boxB):
     # boxA and boxB are (x1, y1, x2, y2)
@@ -38,7 +36,6 @@ def compute_iou(boxA, boxB):
     boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
     return interArea / float(boxAArea + boxBArea - interArea)
 
-
 class FaceTracker:
     """
     DetectionThread: continuously pulls detections from mxface.detect_get(),
@@ -46,12 +43,11 @@ class FaceTracker:
     RecognitionThread: continuously pulls recognition results from mxface.recognize_get()
     and updates the tracker_dict with the recognized name.
     """
-
-
     def __init__(self, mxface: MXFace, face_database: FaceDatabase):
         self.tracker = BYTETracker()
         self.mxface = mxface
         self.tracker_dict = {}  # Mapping from track_id to TrackedObject
+        self.tracker_dict_lock = threading.Lock()  # Lock for tracker_dict
         self.current_frame = AnnotatedFrame(np.zeros([10, 10, 3]))
         self.composite_queue = queue.Queue(maxsize=1)
         self.database = face_database
@@ -106,6 +102,10 @@ class FaceTracker:
         new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
         return rotated_image, new_bbox
 
+    def get_tracker_dict_copy(self) -> dict:
+        """Return a thread-safe shallow copy of tracker_dict."""
+        with self.tracker_dict_lock:
+            return dict(self.tracker_dict)
 
 class DetectionThread(QThread):
     """
@@ -131,9 +131,10 @@ class DetectionThread(QThread):
         except queue.Empty:
             return
 
-        # Mark all current tracked objects as not active
-        for tracked_object in self.face_tracker.tracker_dict.values():
-            tracked_object.activated = False
+        # Mark all current tracked objects as not active (protected by lock)
+        with self.face_tracker.tracker_dict_lock:
+            for tracked_object in self.face_tracker.tracker_dict.values():
+                tracked_object.activated = False
 
         current_time = time.time()
         if annotated_frame.num_detected_faces == 0:
@@ -147,59 +148,59 @@ class DetectionThread(QThread):
         dets = np.array(dets, dtype=np.float32)
 
         # Update tracker with the new detections
-        # Update tracker with the new detections
         for tracklet in self.face_tracker.tracker.update(dets, None):
             x1, y1, x2, y2, track_id, _, _ = tracklet.astype(int)
-
             keypoints = self._get_keypoints((x1, y1, x2, y2), annotated_frame)
 
-            # For an existing track, update bbox and activate it.
-            if track_id in self.face_tracker.tracker_dict:
-                tracked_obj = self.face_tracker.tracker_dict[track_id]
-                tracked_obj.bbox = (x1, y1, x2, y2)
-                tracked_obj.activated = True
+            with self.face_tracker.tracker_dict_lock:
+                # For an existing track, update bbox and activate it.
+                if track_id in self.face_tracker.tracker_dict:
+                    tracked_obj = self.face_tracker.tracker_dict[track_id]
+                    tracked_obj.bbox = (x1, y1, x2, y2)
+                    tracked_obj.activated = True
 
-                # Refresh active track if refresh_interval elapsed.
-                if current_time - tracked_obj.last_recognition > self.refresh_interval:
+                    # Refresh active track if refresh_interval elapsed.
+                    if current_time - tracked_obj.last_recognition > self.refresh_interval:
+                        face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
+                        try:
+                            self.face_tracker.mxface.recognize_put((track_id, face), block=False)
+                        except queue.Full:
+                            pass
+                else:
+                    # New track: create a new tracked object and request recognition immediately.
+                    new_obj = TrackedObject(
+                        bbox=(x1, y1, x2, y2), 
+                        keypoints=keypoints, 
+                        track_id=track_id, 
+                        last_recognition=current_time
+                    )
+                    self.face_tracker.tracker_dict[track_id] = new_obj
                     face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                     try:
                         self.face_tracker.mxface.recognize_put((track_id, face), block=False)
                     except queue.Full:
                         pass
-            else:
-                # New track: create a new tracked object and request recognition immediately.
-                new_obj = TrackedObject(bbox=(x1, y1, x2, y2), 
-                                        keypoints=keypoints, 
-                                        track_id=track_id, 
-                                        last_recognition=current_time)
-                self.face_tracker.tracker_dict[track_id] = new_obj
-                face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
-                try:
-                    self.face_tracker.mxface.recognize_put((track_id, face), block=False)
-                except queue.Full:
-                    pass
 
+        # Push composite frame (image and currently activated objects) to the queue
+        with self.face_tracker.tracker_dict_lock:
+            activated_objects = [obj for obj in self.face_tracker.tracker_dict.values() if obj.activated]
+
+        try:
+            self.face_tracker.composite_queue.put_nowait(
+                CompositeFrame(annotated_frame.image, activated_objects)
+            )
+        except queue.Full:
+            pass
 
     def run(self):
         while not self.stop_threads:
             self._update_detections()
 
-            # Push composite frame (image and currently activated objects) to the queue
-            activated_objects = [obj for obj in self.face_tracker.tracker_dict.values() if obj.activated]
-
-            try:
-                self.face_tracker.composite_queue.put_nowait(
-                    CompositeFrame(self.face_tracker.current_frame.image, 
-                                   activated_objects)
-                )
-            except queue.Full:
-                pass
-
     def stop(self):
         self.stop_threads = True
 
     def _get_keypoints(self, track_box, annotated_frame):
-        """Must re-associate the tracked box with the detected box to extract keypoints"""
+        """Re-associate the tracked box with the detected box to extract keypoints."""
         best_iou = 0
         best_idx = None
 
@@ -212,7 +213,6 @@ class DetectionThread(QThread):
                 best_iou = iou
                 best_idx = idx
         return annotated_frame.keypoints[best_idx]
-
 
 class RecognitionThread(QThread):
     """
@@ -233,19 +233,20 @@ class RecognitionThread(QThread):
 
     def _run(self):
         try:
-            # Expect recognition results as (track_id, recognized_name)
+            # Expect recognition results as (track_id, embedding)
             track_id, embedding = self.face_tracker.mxface.recognize_get(timeout=0.1)
         except queue.Empty:
             return
 
-        if track_id not in self.face_tracker.tracker_dict:
-            return 
+        with self.face_tracker.tracker_dict_lock:
+            if track_id not in self.face_tracker.tracker_dict:
+                return
 
-        name, distances = self.face_tracker.database.find(embedding)
-        tracked_obj = self.face_tracker.tracker_dict[track_id]
-        tracked_obj.name = name
-        tracked_obj.distances = distances
-        tracked_obj.last_recognition = time.time()
+            name, distances = self.face_tracker.database.find(embedding)
+            tracked_obj = self.face_tracker.tracker_dict[track_id]
+            tracked_obj.name = name
+            tracked_obj.distances = distances
+            tracked_obj.last_recognition = time.time()
 
     def stop(self):
         self.stop_threads = True
