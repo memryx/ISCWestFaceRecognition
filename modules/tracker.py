@@ -77,42 +77,6 @@ class FaceTracker:
         except queue.Full:
             pass
 
-    def _extract_face(self, image: np.ndarray, xyxy: tuple[int, int, int, int]) -> np.ndarray:
-        x1, y1, x2, y2 = xyxy
-        orig_h, orig_w, _ = image.shape
-        x1 = max(int(x1), 0)
-        y1 = max(int(y1), 0)
-        x2 = min(int(x2), orig_w)
-        y2 = min(int(y2), orig_h)
-        face = image[y1:y2, x1:x2]
-        return face
-
-    def _align_eyes(self, image: np.ndarray, detected_face):
-        right_eye = detected_face.keypoints[0]
-        left_eye = detected_face.keypoints[1]
-        dx = left_eye[0] - right_eye[0]
-        dy = left_eye[1] - right_eye[1]
-        angle = np.degrees(np.arctan2(dy, dx))
-        rotation_angle = angle
-        (h, w) = image.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
-        rotated_image = cv2.warpAffine(image, M, (w, h))
-        x, y, bw, bh = detected_face.bbox
-        corners = np.array([
-            [x, y],
-            [x + bw, y],
-            [x, y + bh],
-            [x + bw, y + bh]
-        ], dtype=np.float32).reshape(-1, 1, 2)
-        transformed = cv2.transform(corners, M).reshape(-1, 2)
-        x_min = int(np.min(transformed[:, 0]))
-        y_min = int(np.min(transformed[:, 1]))
-        x_max = int(np.max(transformed[:, 0]))
-        y_max = int(np.max(transformed[:, 1]))
-        new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
-        return rotated_image, new_bbox
-
     def get_activated_tracker_objects(self) -> list:
         with self.tracker_dict_lock:
             return [deepcopy(obj) for obj in self.tracker_dict.values() if obj.activated]
@@ -173,7 +137,8 @@ class DetectionThread(QThread):
                     # Refresh active track if refresh_interval elapsed.
                     if current_time - tracked_obj.last_recognition > self.refresh_interval:
                         try:
-                            self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
+                            self.face_tracker.mxface.recognize_put(
+                                (track_id, annotated_frame.image, (x1, y1, x2, y2), (keypoints[0], keypoints[1])), block=False)
                         except queue.Full:
                             pass
                 else:
@@ -186,7 +151,8 @@ class DetectionThread(QThread):
                     )
                     self.face_tracker.tracker_dict[track_id] = new_obj
                     try:
-                        self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
+                        self.face_tracker.mxface.recognize_put(
+                            (track_id, annotated_frame.image, (x1, y1, x2, y2), (keypoints[0], keypoints[1])), block=False)
                     except queue.Full:
                         pass
 

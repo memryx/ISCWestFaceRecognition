@@ -110,8 +110,8 @@ class MXFace():
         return annotated_frame
 
     def recognize_put(self, obj, block=True, timeout=None):
-        (id, frame, box) = obj
-        face = self._extract_face(frame, box)
+        (id, frame, box, eyes) = obj
+        face = self._extract_face(frame, box, eyes)
         self.recognize_input_q.put((id, face), block, timeout)
         self._outstanding_recognition_frames += 1
 
@@ -120,7 +120,10 @@ class MXFace():
         self._outstanding_recognition_frames -= 1
         return labeled_embedding
 
-    def _extract_face(self, image: np.ndarray, xyxy: tuple[int, int, int, int]) -> np.ndarray:
+    def _extract_face(self, 
+                      image: np.ndarray, 
+                      xyxy: tuple[int, int, int, int], 
+                      eyes: tuple[tuple[int,int]]) -> np.ndarray:
         x1, y1, x2, y2 = xyxy
         orig_h, orig_w, _ = image.shape
         x1 = max(int(x1), 0)
@@ -128,7 +131,37 @@ class MXFace():
         x2 = min(int(x2), orig_w)
         y2 = min(int(y2), orig_h)
         face = image[y1:y2, x1:x2]
+
+        if self.do_eye_alignment:
+            face, bbox = self._align_eyes(face, xyxy, eyes)
+
         return face
+
+    def _align_eyes(self, image: np.ndarray, bbox, eyes):
+        right_eye = eyes[0]
+        left_eye = eyes[1]
+        dx = left_eye[0] - right_eye[0]
+        dy = left_eye[1] - right_eye[1]
+        angle = np.degrees(np.arctan2(dy, dx))
+        rotation_angle = angle
+        (h, w) = image.shape[:2]
+        center = (w // 2, h // 2)
+        M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+        rotated_image = cv2.warpAffine(image, M, (w, h))
+        x1, y1, x2, y2 = bbox
+        corners = np.array([
+            [x1, y1],
+            [x2, y1],
+            [x1, y2],
+            [x2, y2]
+        ], dtype=np.float32).reshape(-1, 1, 2)
+        transformed = cv2.transform(corners, M).reshape(-1, 2)
+        x_min = int(np.min(transformed[:, 0]))
+        y_min = int(np.min(transformed[:, 1]))
+        x_max = int(np.max(transformed[:, 0]))
+        y_max = int(np.max(transformed[:, 1]))
+        new_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
+        return rotated_image, new_bbox
 
 
     ### Async Functions #######################################################
@@ -364,8 +397,9 @@ class MockMXFace(MXFace):
         annotated_frame = self.detect_q.get(block, timeout)
         return annotated_frame
 
-    def recognize_put(self, face, block=True, timeout=None):
-        self.recognize_q.put(face, block, timeout)
+    def recognize_put(self, obj, block=True, timeout=None):
+        """obj: (track_id, frame, xyxy, eyes)"""
+        self.recognize_q.put(obj, block, timeout)
 
     def recognize_get(self, block=True, timeout=None):
         (id, _) = self.recognize_q.get(block, timeout)
