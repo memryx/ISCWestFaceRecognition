@@ -30,6 +30,9 @@ class Compositor(QObject):
     def draw_objects(self, frame, tracked_objects):
 
         for obj in tracked_objects.values():
+            if obj.activated == False:
+                continue
+
             (left, top, right, bottom) = obj.bbox
 
             label = f'{obj.name}({obj.track_id})'

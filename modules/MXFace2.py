@@ -77,10 +77,12 @@ class MXFace():
     def stop(self):
         logger.info('stop')
         print('Shutting down MXFace')
+
         while self._outstanding_detection_frames > 0:
             try:
                 self.detect_get(timeout=0.1)
             except queue.Empty:
+                print('outstanding detection timeout')
                 continue
         self.detect_input_q.put(None)
         print('detection drained')
@@ -89,6 +91,7 @@ class MXFace():
             try:
                 self.recognize_get(timeout=0.1)
             except queue.Empty:
+                print('outstanding recognition timeout')
                 continue
         print('recognized drained')
         self.recognize_input_q.put((None, None))
@@ -98,8 +101,8 @@ class MXFace():
 
     def detect_put(self, image, block=True, timeout=None):
         annotated_frame = AnnotatedFrame(np.array(image))
-        self._outstanding_detection_frames += 1
         self.detect_input_q.put(annotated_frame, block, timeout)
+        self._outstanding_detection_frames += 1
 
     def detect_get(self, block=True, timeout=None):
         annotated_frame = self.detect_output_q.get(block, timeout)
@@ -107,10 +110,10 @@ class MXFace():
         return annotated_frame
 
     def recognize_put(self, obj, block=True, timeout=None):
-        self._outstanding_recognition_frames += 1
         (id, frame, box) = obj
         face = self._extract_face(frame, box)
         self.recognize_input_q.put((id, face), block, timeout)
+        self._outstanding_recognition_frames += 1
 
     def recognize_get(self, block=True, timeout=None):
         labeled_embedding = self.recognize_output_q.get(block, timeout)

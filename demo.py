@@ -196,7 +196,7 @@ class Demo(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video2"  # Replace with your video file path
+    video_path = "/dev/video0"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
     #video_path = 'assets/photos/joey.jpg'
     player = Demo(video_path, VIDEO_CONFIG['1080p'])

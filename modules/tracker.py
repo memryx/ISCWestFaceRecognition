@@ -147,23 +147,22 @@ class DetectionThread(QThread):
             for tracked_object in self.face_tracker.tracker_dict.values():
                 tracked_object.activated = False
 
-        current_time = time.time()
-        if annotated_frame.num_detected_faces == 0:
-            return
+            current_time = time.time()
+            if annotated_frame.num_detected_faces == 0:
+                return
 
-        # Build detections array expected by BYTETracker
-        dets = []
-        for bbox, score in zip(annotated_frame.boxes, annotated_frame.scores):
-            x, y, w, h = bbox
-            dets.append(np.array([x, y, x+w, y+h, score, 0]))
-        dets = np.array(dets, dtype=np.float32)
+            # Build detections array expected by BYTETracker
+            dets = []
+            for bbox, score in zip(annotated_frame.boxes, annotated_frame.scores):
+                x, y, w, h = bbox
+                dets.append(np.array([x, y, x+w, y+h, score, 0]))
+            dets = np.array(dets, dtype=np.float32)
 
-        # Update tracker with the new detections
-        for tracklet in self.face_tracker.tracker.update(dets, None):
-            x1, y1, x2, y2, track_id, _, _ = tracklet.astype(int)
-            keypoints = self._get_keypoints((x1, y1, x2, y2), annotated_frame)
+            # Update tracker with the new detections
+            for tracklet in self.face_tracker.tracker.update(dets, None):
+                x1, y1, x2, y2, track_id, _, _ = tracklet.astype(int)
+                keypoints = self._get_keypoints((x1, y1, x2, y2), annotated_frame)
 
-            with self.face_tracker.tracker_dict_lock:
                 # For an existing track, update bbox and activate it.
                 if track_id in self.face_tracker.tracker_dict:
                     tracked_obj = self.face_tracker.tracker_dict[track_id]
@@ -172,9 +171,7 @@ class DetectionThread(QThread):
 
                     # Refresh active track if refresh_interval elapsed.
                     if current_time - tracked_obj.last_recognition > self.refresh_interval:
-                        #face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                         try:
-                            #self.face_tracker.mxface.recognize_put((track_id, face), block=False)
                             self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
                         except queue.Full:
                             pass
@@ -187,15 +184,10 @@ class DetectionThread(QThread):
                         last_recognition=current_time
                     )
                     self.face_tracker.tracker_dict[track_id] = new_obj
-                    #face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                     try:
                         self.face_tracker.mxface.recognize_put((track_id, annotated_frame.image, (x1, y1, x2, y2)), block=False)
                     except queue.Full:
                         pass
-
-        # Push composite frame (image and currently activated objects) to the queue
-        with self.face_tracker.tracker_dict_lock:
-            activated_objects = [obj for obj in self.face_tracker.tracker_dict.values() if obj.activated]
 
     def run(self):
         while not self.stop_threads:
