@@ -1,7 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from modules.bytetracker import BYTETracker
 import queue
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 from modules.MXFace2 import MXFace, AnnotatedFrame
 import cv2
@@ -13,17 +13,30 @@ from .utils import Framerate
 @dataclass
 class TrackedObject:
     bbox: tuple[int, int, int, int]
+    keypoints: list[tuple[int, int]]
     track_id: int
-    name: str
+    name: str = "Unknown"
     activated: bool = True
     last_recognition: float = 0.0
-    distance: float = 0.0
+    distances: list[float] = field(default_factory=list)
 
 
 @dataclass
 class CompositeFrame:
     image: np.ndarray
     tracked_objects: list
+
+
+def compute_iou(boxA, boxB):
+    # boxA and boxB are (x1, y1, x2, y2)
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    return interArea / float(boxAArea + boxBArea - interArea)
 
 
 class FaceTracker:
@@ -137,6 +150,9 @@ class DetectionThread(QThread):
         # Update tracker with the new detections
         for tracklet in self.face_tracker.tracker.update(dets, None):
             x1, y1, x2, y2, track_id, _, _ = tracklet.astype(int)
+
+            keypoints = self._get_keypoints((x1, y1, x2, y2), annotated_frame)
+
             # For an existing track, update bbox and activate it.
             if track_id in self.face_tracker.tracker_dict:
                 tracked_obj = self.face_tracker.tracker_dict[track_id]
@@ -152,7 +168,10 @@ class DetectionThread(QThread):
                         pass
             else:
                 # New track: create a new tracked object and request recognition immediately.
-                new_obj = TrackedObject((x1, y1, x2, y2), track_id, "Unknown", activated=True, last_recognition=current_time)
+                new_obj = TrackedObject(bbox=(x1, y1, x2, y2), 
+                                        keypoints=keypoints, 
+                                        track_id=track_id, 
+                                        last_recognition=current_time)
                 self.face_tracker.tracker_dict[track_id] = new_obj
                 face = self.face_tracker._extract_face(annotated_frame.image, (x1, y1, x2, y2))
                 try:
@@ -178,6 +197,21 @@ class DetectionThread(QThread):
 
     def stop(self):
         self.stop_threads = True
+
+    def _get_keypoints(self, track_box, annotated_frame):
+        """Must re-associate the tracked box with the detected box to extract keypoints"""
+        best_iou = 0
+        best_idx = None
+
+        # Loop over detections from annotated_frame
+        for idx, det_box in enumerate(annotated_frame.boxes):
+            # Convert detection box from (x, y, w, h) to (x1, y1, x2, y2)
+            det_box_converted = (det_box[0], det_box[1], det_box[0] + det_box[2], det_box[1] + det_box[3])
+            iou = compute_iou(track_box, det_box_converted)
+            if iou > best_iou:
+                best_iou = iou
+                best_idx = idx
+        return annotated_frame.keypoints[best_idx]
 
 
 class RecognitionThread(QThread):
@@ -210,7 +244,7 @@ class RecognitionThread(QThread):
         name, distances = self.face_tracker.database.find(embedding)
         tracked_obj = self.face_tracker.tracker_dict[track_id]
         tracked_obj.name = name
-        tracked_obj.distance = distances[0] if distances else 0
+        tracked_obj.distances = distances
         tracked_obj.last_recognition = time.time()
 
     def stop(self):

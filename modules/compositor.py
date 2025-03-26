@@ -7,12 +7,6 @@ from PySide6.QtWidgets import QCheckBox
 
 from .utils import Framerate
 
-class CompositorConfig:
-    show_keypoints: bool = False
-    show_boxes: bool = True
-    show_distances: bool = False
-    mouse_position: tuple[int, int] = (-1,-1)
-
 class Compositor(QObject):
     frame_ready = Signal(np.ndarray)
 
@@ -25,10 +19,13 @@ class Compositor(QObject):
         self.framerate = Framerate()
 
         # Config
-        self.config = CompositorConfig()
-
+        self.mouse_position = (-1,-1)
         self.bbox_checkbox = QCheckBox("Draw Boxes")
-        self.bbox_checkbox.setChecked(False)
+        self.bbox_checkbox.setChecked(True)
+        self.keypoints_checkbox = QCheckBox("Draw Keypoints")
+        self.keypoints_checkbox.setChecked(False)
+        self.distance_checkbox = QCheckBox("Show Similarity")
+        self.distance_checkbox.setChecked(False)
 
     def update_mouse_pos(self, pos):
         self.mouse_position = pos
@@ -52,8 +49,8 @@ class Compositor(QObject):
 
             label = f'{obj.name}({obj.track_id})'
             cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 0), 2)
-            if False: #self.conf_checkbox.isChecked():
-                for i, (name, distance) in enumerate(distance_list):
+            if self.distance_checkbox.isChecked():
+                for i, (name, distance) in enumerate(obj.distances):
                     if i == 3:
                         break
                     label = f'{name}: {distance:.1f}'
@@ -63,8 +60,8 @@ class Compositor(QObject):
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
 
             # Draw keypoints if checkbox is checked
-            if False: #self.keypoints_checkbox.isChecked():
-                for (x, y) in face.keypoints:
+            if self.keypoints_checkbox.isChecked():
+                for (x, y) in obj.keypoints:
                     cv2.circle(frame, (x, y), 5, (255, 0, 0), -1)
 
             # Draw semi-transparent rectangle if mouse is inside bounding box

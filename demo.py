@@ -25,6 +25,26 @@ from modules.database import FaceDatabase, DatabaseViewerWidget
 from modules.MXFace2 import MXFace, MockMXFace
 from modules.tracker import FaceTracker
 
+
+class ConfigPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        #self.bbox_checkbox = QCheckBox("Draw Boxes")
+        #self.bbox_checkbox.setChecked(True)
+        layout.addWidget(self.parent().compositor.bbox_checkbox)
+        layout.addWidget(self.parent().compositor.keypoints_checkbox)
+        layout.addWidget(self.parent().compositor.distance_checkbox)
+
+        self.framerate_checkbox = QCheckBox("Print framerates")
+        self.framerate_checkbox.setChecked(False)
+        layout.addWidget(self.framerate_checkbox)
+
+
 # Viewer for video frames  
 class Demo(QMainWindow):
     def __init__(self, video_path='/dev/video0', video_config=None):
@@ -32,10 +52,11 @@ class Demo(QMainWindow):
         self.setWindowTitle("Video Viewer")
 
         # Create and configure the video display label
-        self.viewer_widget = FrameViewer()
+        self.viewer = FrameViewer()
 
         # Set up video-related attributes
-        self.mxface = MockMXFace(Path('assets/models'))
+        self.mxface = MXFace(Path('assets/models'))
+        #self.mxface = MockMXFace(Path('assets/models'))
         self.capture_thread = CaptureThread(video_path, 
                                             self.mxface, 
                                             video_config)
@@ -47,8 +68,12 @@ class Demo(QMainWindow):
         self.tracker = FaceTracker(self.mxface, self.face_database)
         self.compositor = Compositor(self.tracker, 16)
 
-        # Connect compositor's signal to the viewer's update slot
-        self.compositor.frame_ready.connect(self.viewer_widget.update_frame)
+        self.config_panel = ConfigPanel(self)
+
+        # Connections Connect compositor's signal to the viewer's update slot
+        self.compositor.frame_ready.connect(self.viewer.update_frame)
+        self.viewer.mouse_move.connect(self.compositor.update_mouse_pos)
+        self.viewer.mouse_click.connect(self.handle_viewer_mouse_click)
 
         # Layout the widgets
         self.setup_layout()
@@ -91,33 +116,42 @@ class Demo(QMainWindow):
         self.control_layout.addWidget(self.load_video_button)
 
         # Config panel with checkboxes
-        self.config_panel = QFrame()
-        self.config_layout = QVBoxLayout(self.config_panel)
-        self.keypoints_checkbox = QCheckBox("Draw Keypoints", self)
-        self.keypoints_checkbox.setChecked(False)
-        self.bbox_checkbox = QCheckBox("Draw Boxes", self)
-        self.bbox_checkbox.setChecked(True)
-        self.conf_checkbox = QCheckBox("Show Distances", self)
-        self.conf_checkbox.setChecked(False)
-        self.config_layout.addWidget(self.keypoints_checkbox)
-        self.config_layout.addWidget(self.bbox_checkbox)
-        self.config_layout.addWidget(self.conf_checkbox)
         self.control_layout.addWidget(self.config_panel)
+
+        #self.config_panel = QFrame()
+        #self.config_layout = QVBoxLayout(self.config_panel)
+        #self.keypoints_checkbox = QCheckBox("Draw Keypoints", self)
+        #self.keypoints_checkbox.setChecked(False)
+        #self.bbox_checkbox = QCheckBox("Draw Boxes", self)
+        #self.bbox_checkbox.setChecked(True)
+        #self.conf_checkbox = QCheckBox("Show Distances", self)
+        #self.conf_checkbox.setChecked(False)
+        #self.config_layout.addWidget(self.keypoints_checkbox)
+        #self.config_layout.addWidget(self.bbox_checkbox)
+        #self.config_layout.addWidget(self.conf_checkbox)
+        #self.control_layout.addWidget(self.config_panel)
 
         # Database loader
         self.control_layout.addWidget(self.database_viewer_widget)
 
         # Video viewer widget
-        #self.video_layout = QVBoxLayout(self.viewer)
-        self.splitter.addWidget(self.viewer_widget)
+        self.splitter.addWidget(self.viewer)
         self.splitter.setStretchFactor(1, 1)
 
+    def handle_viewer_mouse_click(self):
+        """Click on the viewer; check if its within a face and save the profile."""
+        print('clicked!')
+        pass #TODO: Impelment
+        # 1. get face locations
+        # 2. check if mouse over face
+        # 3. save image and embedding to databse
 
     def poll_framerates(self):
-        print(f'capture: {self.capture_thread.framerate.get():.1f}')
-        print(f'composite: {self.compositor.framerate.get():.1f}')
-        print(f't.dt {self.tracker.detection_thread.framerate.get():.1f}')
-        print(f't.rt {self.tracker.recognition_thread.framerate.get():.1f}')
+        if self.config_panel.framerate_checkbox.isChecked():
+            print(f'capture: {self.capture_thread.framerate.get():.1f}')
+            print(f'composite: {self.compositor.framerate.get():.1f}')
+            print(f't.dt {self.tracker.detection_thread.framerate.get():.1f}')
+            print(f't.rt {self.tracker.recognition_thread.framerate.get():.1f}')
 
     def closeEvent(self, event):
         # Stop threads and release video capture on close
@@ -133,7 +167,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     #video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
-    video_path = 'assets/photos/one_face.jpg'
+    video_path = 'assets/photos/joey.jpg'
     player = Demo(video_path, VIDEO_CONFIG['1080p'])
     player.resize(1200, 800)
     player.show()
