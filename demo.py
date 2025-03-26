@@ -120,6 +120,9 @@ class Demo(QMainWindow):
 
     def handle_viewer_mouse_click(self, mouse_pos):
         """Click on the viewer; check if its within a face and save the profile."""
+        if mouse_pos is None:
+            return
+            
         tracker_frame = np.copy(self.tracker.current_frame.image)
         tracker_objects = self.tracker.get_activated_tracker_objects()
 
