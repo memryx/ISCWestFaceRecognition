@@ -167,6 +167,7 @@ class DetectionThread(QThread):
                 if track_id in self.face_tracker.tracker_dict:
                     tracked_obj = self.face_tracker.tracker_dict[track_id]
                     tracked_obj.bbox = (x1, y1, x2, y2)
+                    tracked_obj.keypoints = keypoints
                     tracked_obj.activated = True
 
                     # Refresh active track if refresh_interval elapsed.

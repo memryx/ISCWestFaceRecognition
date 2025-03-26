@@ -132,7 +132,7 @@ class Demo(QMainWindow):
         # Iterate over each face to check if the click is inside any bounding box
         found = False 
         mouse_x, mouse_y = mouse_pos
-        for id, obj in tracker_objects:
+        for obj in tracker_objects:
             (left, top, right, bottom) = obj.bbox
             if left <= mouse_x <= right and top <= mouse_y <= bottom:
                 width = right - left
