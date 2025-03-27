@@ -62,8 +62,8 @@ class Demo(QMainWindow):
         self.config_panel = ConfigPanel(self)
 
         # Connections Connect compositor's signal to the viewer's update slot
-        self.capture_thread.frame_ready.connect(self.compositor.draw)
         self.capture_thread.frame_ready.connect(self.tracker.detect)
+        self.tracker.frame_ready.connect(self.compositor.draw)
 
         self.compositor.frame_ready.connect(self.viewer.update_frame)
         self.viewer.mouse_move.connect(self.compositor.update_mouse_pos)
@@ -170,10 +170,6 @@ class Demo(QMainWindow):
                 found = True
                 break
 
-        pass #TODO: Impelment
-        # 1. get face locations
-        # 2. check if mouse over face
-        # 3. save image and embedding to databse
 
     def poll_framerates(self):
         if self.config_panel.framerate_checkbox.isChecked():
@@ -192,10 +188,10 @@ class Demo(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video0"  # Replace with your video file path
+    video_path = "/dev/video2"  # Replace with your video file path
     #video_path = "/home/jake/Videos/lunch.mp4"
     #video_path = 'assets/photos/joey.jpg'
-    player = Demo(video_path, VIDEO_CONFIG['1080p'])
+    player = Demo(video_path, VIDEO_CONFIG['2k'])
     player.resize(1200, 800)
     player.show()
     sys.exit(app.exec())

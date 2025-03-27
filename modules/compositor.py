@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QCheckBox
 
 from .utils import Framerate
 
+MXBLUE = (56, 172, 206)
+
 class Compositor(QObject):
     frame_ready = Signal(np.ndarray)
 
@@ -47,7 +49,7 @@ class Compositor(QObject):
             (left, top, right, bottom) = obj.bbox
 
             label = f'{obj.name}({obj.track_id})'
-            cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 255, 0), 2)
+            cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, MXBLUE, 2)
             if self.distance_checkbox.isChecked():
                 for i, (name, distance) in enumerate(obj.distances):
                     if i == 3:
@@ -56,12 +58,12 @@ class Compositor(QObject):
                     cv2.putText(frame, label, (left + 10, top + 10 + 20 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
 
             if self.bbox_checkbox.isChecked(): 
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                cv2.rectangle(frame, (left, top), (right, bottom), MXBLUE, 2)
 
             # Draw keypoints if checkbox is checked
             if self.keypoints_checkbox.isChecked():
                 for (x, y) in obj.keypoints:
-                    cv2.circle(frame, (x, y), 5, (255, 0, 0), -1)
+                    cv2.circle(frame, (x, y), 5, MXBLUE, -1)
 
             # Draw semi-transparent rectangle if mouse is inside bounding box
             if self.mouse_position:
@@ -69,7 +71,7 @@ class Compositor(QObject):
                 if left <= mouse_x <= right and top <= mouse_y <= bottom:
                     overlay = frame.copy()
                     alpha = 0.5  # Transparency factor
-                    cv2.rectangle(overlay, (left, top), (right, bottom), (0, 0, 255), -1)
+                    cv2.rectangle(overlay, (left, top), (right, bottom), MXBLUE, -1)
                     # Apply the overlay
                     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         return frame

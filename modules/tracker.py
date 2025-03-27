@@ -1,9 +1,9 @@
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QObject
 from modules.bytetracker import BYTETracker
 import queue
 from dataclasses import dataclass, field
 import numpy as np
-from modules.MXFace import MXFace, AnnotatedFrame
+from modules.MXFace import MXFace, MockMXFace, AnnotatedFrame
 from pathlib import Path
 import time
 from .database import FaceDatabase
@@ -41,7 +41,10 @@ def compute_iou(boxA, boxB):
     return interArea / float(boxAArea + boxBArea - interArea)
 
 
-class FaceTracker:
+class FaceTracker(QObject):
+
+    frame_ready = Signal(np.ndarray)
+
     """
     DetectionThread: continuously pulls detections from mxface.detect_get(),
     updates the tracker and pushes unknown faces (with track_id) to be recognized.
@@ -49,6 +52,7 @@ class FaceTracker:
     and updates the tracker_dict with the recognized name.
     """
     def __init__(self, face_database: FaceDatabase):
+        super().__init__()
         self.tracker = BYTETracker()
         #self.mxface = MockMXFace(Path('assets/models'))
         self.mxface = MXFace(Path('assets/models'))
@@ -157,6 +161,8 @@ class DetectionThread(QThread):
                             (track_id, annotated_frame.image, (x1, y1, x2, y2), (keypoints[0], keypoints[1])), block=False)
                     except queue.Full:
                         pass
+
+        self.face_tracker.frame_ready.emit(annotated_frame.image)
 
     def run(self):
         while not self.stop_threads:
