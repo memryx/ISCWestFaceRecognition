@@ -37,6 +37,7 @@ class ConfigPanel(QFrame):
 
         layout.addWidget(self.parent().compositor.label_scale_slider)
         layout.addWidget(self.parent().compositor.label_thickness_slider)
+        layout.addWidget(self.parent().compositor.line_thickness_slider)
 
         self.framerate_checkbox = QCheckBox("Print framerates")
         self.framerate_checkbox.setChecked(False)
@@ -212,9 +213,7 @@ class Demo(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    video_path = "/dev/video2"  # Replace with your video file path
-    #video_path = "/home/jake/Videos/lunch.mp4"
-    #video_path = 'assets/photos/joey.jpg'
+    video_path = "/dev/video0"  # Replace with your video file path
     player = Demo(video_path, VIDEO_CONFIG['2k'])
     player.resize(1200, 800)
     player.show()

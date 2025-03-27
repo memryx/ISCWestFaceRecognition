@@ -43,6 +43,12 @@ class Compositor(QObject):
                                                       initial=2,
                                                       step=1, 
                                                       multiplier=1)
+        self.line_thickness_slider = SliderWithLabel("Line Thickness:", 
+                                                      minimum=1,
+                                                      maximum=10, 
+                                                      initial=2,
+                                                      step=1, 
+                                                      multiplier=1)
 
 
         # Load icons and resize
@@ -76,7 +82,7 @@ class Compositor(QObject):
         # Parameters for the label line.
         diag_length = (right - left) // 2   # Length of diagonal segment.
         margin = 10        # Extra length added to horizontal segment.
-        line_thickness = 3
+        line_thickness = int(self.line_thickness_slider.value())
 
         # Get text size for label.
         (text_width, text_height), baseline = cv2.getTextSize(
@@ -150,7 +156,8 @@ class Compositor(QObject):
                     cv2.putText(frame, label, (left + 10, top + 10 + 20 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
 
             if self.bbox_checkbox.isChecked(): 
-                cv2.rectangle(frame, (left, top), (right, bottom), MxColors.Blue, 2)
+                line_thickness = int(self.line_thickness_slider.value())
+                cv2.rectangle(frame, (left, top), (right, bottom), MxColors.Blue, line_thickness)
 
             # Draw keypoints if checkbox is checked
             if self.keypoints_checkbox.isChecked():
