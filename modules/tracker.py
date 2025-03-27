@@ -58,7 +58,7 @@ class FaceTracker(QObject):
         self.mxface = MXFace(Path('assets/models'))
         self.tracker_dict = {}  # Mapping from track_id to TrackedObject
         self.tracker_dict_lock = threading.Lock()  # Lock for tracker_dict
-        self.current_frame = AnnotatedFrame(np.zeros([10, 10, 3]))
+        self.current_frame = AnnotatedFrame(np.zeros([1920, 1080, 3]))
         self.composite_queue = queue.Queue(maxsize=1)
         self.database = face_database
         
@@ -162,11 +162,12 @@ class DetectionThread(QThread):
                     except queue.Full:
                         pass
 
-        self.face_tracker.frame_ready.emit(annotated_frame.image)
 
     def run(self):
         while not self.stop_threads:
             self._update_detections()
+            if self.face_tracker.current_frame:
+                self.face_tracker.frame_ready.emit(self.face_tracker.current_frame.image)
 
     def stop(self):
         self.stop_threads = True

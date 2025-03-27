@@ -31,14 +31,14 @@ class Compositor(QObject):
         self.load_icons()
 
     def load_icons(self):
-        pil_im = Image.open("assets/icon.ico")
-        pil_im = pil_im.convert("RGBA")  # Ensure image has an alpha channel
-        icon = cv2.resize(np.array(pil_im), (100, 100))
-        self.icon_left = icon 
+        #pil_im = Image.open("assets/icon.ico")
+        #pil_im = pil_im.convert("RGBA")  # Ensure image has an alpha channel
+        #icon = cv2.resize(np.array(pil_im), (100, 100))
+        #self.icon_left = icon 
 
-        icon = cv2.imread("assets/isc-west-logo.png", cv2.IMREAD_UNCHANGED)
+        icon = cv2.imread("assets/logo.png", cv2.IMREAD_UNCHANGED)
         icon = cv2.resize(icon, (100, 100))
-        self.icon_right = cv2.cvtColor(icon, cv2.COLOR_RGBA2BGRA)
+        self.logo = cv2.cvtColor(icon, cv2.COLOR_RGBA2BGRA)
 
     def update_mouse_pos(self, pos):
         self.mouse_position = pos
@@ -76,31 +76,27 @@ class Compositor(QObject):
                     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
         return frame
 
-    def overlay_icon(self, frame, icon, x, y):
-        if icon is None:
-            return frame
-        h, w = icon.shape[:2]
-        if icon.shape[2] == 4:  # Handle alpha channel
-            alpha_s = icon[:, :, 3] / 255.0
+    def overlay_icon(self, frame):
+        x, y = frame.shape[1]- self.logo.shape[1] - 10, 10
+        h, w = self.logo.shape[:2]
+        if self.logo.shape[2] == 4:  # Handle alpha channel
+            alpha_s = self.logo[:, :, 3] / 255.0
             alpha_l = 1.0 - alpha_s
 
             for c in range(3):
                 frame[y:y+h, x:x+w, c] = (
-                    alpha_s * icon[:, :, c] +
+                    alpha_s * self.logo[:, :, c] +
                     alpha_l * frame[y:y+h, x:x+w, c]
                 )
         else:
-            frame[y:y+h, x:x+w] = icon
+            frame[y:y+h, x:x+w] = self.logo
         return frame
 
     def draw(self, frame):
         self.framerate.update()
 
         frame = np.copy(frame)
-
-        h, w = frame.shape[:2]
-        frame = self.overlay_icon(frame, self.icon_left, 10, h - self.icon_left.shape[0] - 10)
-        frame = self.overlay_icon(frame, self.icon_right, w - self.icon_right.shape[1] - 10, h - self.icon_right.shape[0] - 10)
+        frame = self.overlay_icon(frame)
 
         # Draw face recognitions
         tracked_objects = self.face_tracker.get_activated_tracker_objects()
