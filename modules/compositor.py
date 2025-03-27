@@ -18,6 +18,7 @@ class Compositor(QObject):
         super().__init__(parent)
         self.face_tracker = face_tracker
         self.framerate = Framerate()
+        self.mouse_position = (-1, -1)
 
         # Create config widgets.
         self.bbox_checkbox = QCheckBox("Draw Boxes")
