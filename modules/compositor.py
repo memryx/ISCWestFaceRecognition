@@ -65,7 +65,7 @@ class Compositor(QObject):
 
     def draw_name(self, frame, obj):
         (left, top, right, bottom) = obj.bbox
-        label = f'{obj.name}({obj.track_id})'
+        label = f'{obj.name}'#({obj.track_id})' # TODO add trackid check box
         h, w = frame.shape[:2]
 
         # Get dynamic font parameters from slider widgets.
@@ -205,11 +205,11 @@ class CompositorConfigPopup(QDialog):
     
     def reset_defaults(self):
         # Reset checkboxes.
-        self.compositor.bbox_checkbox.setChecked(True)
+        self.compositor.bbox_checkbox.setChecked(False)
         self.compositor.keypoints_checkbox.setChecked(False)
         self.compositor.distance_checkbox.setChecked(False)
         # Reset sliders to their initial/default values.
-        self.compositor.label_scale_slider.setValue(0.85)
-        self.compositor.label_thickness_slider.setValue(2)
-        self.compositor.line_thickness_slider.setValue(2)
+        self.compositor.label_scale_slider.setValue(1.35)
+        self.compositor.label_thickness_slider.setValue(4)
+        self.compositor.line_thickness_slider.setValue(4)
 
