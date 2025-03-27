@@ -52,7 +52,7 @@ class Compositor(QObject):
 
     def load_icons(self):
         icon = cv2.imread("assets/logo.png", cv2.IMREAD_UNCHANGED)
-        icon = cv2.resize(icon, (100, 100))
+        #icon = cv2.resize(icon, (100, 100))
         self.logo = cv2.cvtColor(icon, cv2.COLOR_RGBA2BGRA)
 
     def update_mouse_pos(self, pos):
@@ -180,6 +180,7 @@ class CompositorConfigPopup(QDialog):
         self.compositor = compositor
         self.setWindowTitle("Compositor Configuration")
         self.setup_ui()
+        self.reset_defaults()
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
