@@ -47,17 +47,88 @@ class Compositor(QObject):
     def update_mouse_pos(self, pos):
         self.mouse_position = pos
 
-    def draw_name(self, frame, obj):
+    def draw_name_plain(self, frame, obj):
         (left, top, right, bottom) = obj.bbox
         label = f'{obj.name}({obj.track_id})'
         cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, MxColors.Blue, 2)
+
+    def draw_name(self, frame, obj):
+        (left, top, right, bottom) = obj.bbox
+        label = f'{obj.name}({obj.track_id})'
+        h, w = frame.shape[:2]
+
+        # Compute center x coordinate of detection box.
+        cx = left + (right - left) // 2
+
+        # Parameters for the label line.
+        diag_length = (right - left) // 2   # Length of diagonal segment.
+        margin = 10        # Extra length added to horizontal segment.
+        line_thickness = 3
+
+        # Get text size for label.
+        (text_width, text_height), baseline = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, 0.85, 2)
+        horiz_length = text_width + margin
+
+        # Default horizontal direction (to the right).
+        dx = 1
+
+        # Try upward placement by default.
+        upward = True
+        start = (cx, top)
+        diag_end = (cx + dx * diag_length, top - diag_length)
+        # Upward text position: drawn above the horizontal segment.
+        upward_text_y = diag_end[1] - 10
+
+        # If the label would be drawn above the image, switch to downward placement.
+        if upward_text_y < 0:
+            upward = False
+
+        if upward:
+            start = (cx, top)
+            diag_end = (cx + dx * diag_length, top - diag_length)
+            text_y = diag_end[1] - 10  # Draw text above the line.
+        else:
+            # Downward configuration: start at the bottom-center of the box.
+            start = (cx, bottom)
+            diag_end = (cx + dx * diag_length, bottom + diag_length)
+            text_y = diag_end[1] + text_height + 10  # Draw text below the line.
+
+        # Check if the horizontal segment (from diag_end) would extend outside the image.
+        # If so, flip dx (i.e. have the line slant toward the left).
+        if dx == 1 and (diag_end[0] + horiz_length > w):
+            dx = -1
+        elif dx == -1 and (diag_end[0] - horiz_length < 0):
+            dx = 1
+
+        # Recompute diag_end if dx changed.
+        if upward:
+            diag_end = (cx + dx * diag_length, top - diag_length)
+        else:
+            diag_end = (cx + dx * diag_length, bottom + diag_length)
+
+        # Compute end of horizontal segment.
+        horiz_end = (int(diag_end[0] + dx * horiz_length), diag_end[1])
+
+        # Compute center of horizontal segment for centering the text.
+        center_horiz = diag_end[0] + dx * (horiz_length / 2)
+        text_x = int(center_horiz - text_width / 2)
+
+        # Draw the label line in DarkBlue.
+        cv2.line(frame, (cx, top) if upward else (cx, bottom), 
+                 (int(diag_end[0]), int(diag_end[1])), MxColors.DarkBlue, thickness=line_thickness)
+        cv2.line(frame, (int(diag_end[0]), int(diag_end[1])), 
+                 (int(horiz_end[0]), int(horiz_end[1])), MxColors.DarkBlue, thickness=line_thickness)
+
+        # Draw the label text in Blue.
+        cv2.putText(frame, label, (text_x, text_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, MxColors.Blue, 2)
 
     def draw_objects(self, frame, tracked_objects):
         for obj in tracked_objects:
             (left, top, right, bottom) = obj.bbox
 
-            label = f'{obj.name}({obj.track_id})'
-            cv2.putText(frame, label, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.85, MxColors.Blue, 2)
+            self.draw_name(frame, obj)
             if self.distance_checkbox.isChecked():
                 for i, (name, distance) in enumerate(obj.distances):
                     if i == 3:
