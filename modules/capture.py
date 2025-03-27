@@ -2,9 +2,16 @@ import sys
 import queue
 import cv2
 import numpy as np
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtCore import QTimer, QThread, Signal
+
+from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QWidget,
+                               QVBoxLayout, QLineEdit, QPushButton,
+                               QHBoxLayout, QSplitter, QCheckBox, QFrame,
+                               QTreeWidget, QTreeWidgetItem, QInputDialog,
+                               QMessageBox, QFileDialog, QDialog, QComboBox, QFormLayout)
+from PySide6.QtGui import QImage, QPixmap, QMouseEvent, QKeyEvent
+from PySide6.QtCore import QTimer, Qt, QThread, Signal, QMutex
+
+
 import time
 
 from .utils import Framerate
@@ -127,4 +134,45 @@ class CaptureThread(QThread):
     def stop(self):
         print("Shutting down CaptureThread")
         self.stop_threads = True
+
+# New dialog for capture thread configuration
+class CaptureConfigDialog(QDialog):
+    def __init__(self, current_video_path, current_resolution, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Capture Thread Configuration")
+        self.setup_ui(current_video_path, current_resolution)
+
+    def setup_ui(self, current_video_path, current_resolution):
+        layout = QVBoxLayout(self)
+
+        form_layout = QFormLayout()
+        self.video_path_edit = QLineEdit(self)
+        self.video_path_edit.setText(current_video_path)
+        form_layout.addRow("Video Path:", self.video_path_edit)
+
+        self.resolution_combo = QComboBox(self)
+        self.resolution_combo.addItems(["1080p", "2k", "4k"])
+        index = self.resolution_combo.findText(current_resolution)
+        if index != -1:
+            self.resolution_combo.setCurrentIndex(index)
+        form_layout.addRow("Resolution:", self.resolution_combo)
+
+        layout.addLayout(form_layout)
+
+        # Buttons for Cancel and Apply
+        button_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("Cancel", self)
+        self.apply_button = QPushButton("Apply", self)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.apply_button)
+        layout.addLayout(button_layout)
+
+        self.cancel_button.clicked.connect(self.reject)
+        self.apply_button.clicked.connect(self.accept)
+
+    def get_configuration(self):
+        return self.video_path_edit.text(), self.resolution_combo.currentText()
+
+# Existing configuration panel (using compositor checkboxes)
+
 

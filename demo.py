@@ -6,7 +6,7 @@ import numpy as np
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QWidget,
                                QVBoxLayout, QLineEdit, QPushButton,
                                QHBoxLayout, QSplitter, QCheckBox, QFrame,
-                               QTreeWidget, QTreeWidgetItem, QInputDialog,
+                               QTreeWidget, QTreeWidgetItem, QInputDialog, QDialog,
                                QMessageBox, QFileDialog)
 from PySide6.QtGui import QImage, QPixmap, QMouseEvent, QKeyEvent
 from PySide6.QtCore import QTimer, Qt, QThread, Signal, QMutex
@@ -15,7 +15,7 @@ from PySide6.QtCore import QTimer, Qt, QThread, Signal, QMutex
 import time
 from pathlib import Path
 
-from modules.capture import CaptureThread, VIDEO_CONFIG
+from modules.capture import CaptureThread, CaptureConfigDialog, VIDEO_CONFIG
 from modules.compositor import Compositor
 from modules.viewer import FrameViewer
 from modules.database import FaceDatabase, DatabaseViewerWidget
@@ -65,6 +65,10 @@ class Demo(QMainWindow):
         self.config_panel = ConfigPanel(self)
 
         # Connections Connect compositor's signal to the viewer's update slot
+        self.capture_control_button = QPushButton("Capture Config", self)
+        self.capture_control_button.clicked.connect(self.open_capture_config)
+
+        # Connect signals between threads and UI
         self.capture_thread.frame_ready.connect(self.tracker.detect)
         self.tracker.frame_ready.connect(self.compositor.draw)
 
@@ -103,6 +107,9 @@ class Demo(QMainWindow):
         self.control_layout = QVBoxLayout(self.control_panel)
         self.splitter.addWidget(self.control_panel)
 
+        # Capture control
+        self.control_layout.addWidget(self.capture_control_button)
+
         # Config panel with checkboxes
         self.control_layout.addWidget(self.config_panel)
 
@@ -112,6 +119,28 @@ class Demo(QMainWindow):
         # Video viewer widget
         self.splitter.addWidget(self.viewer)
         self.splitter.setStretchFactor(1, 1)
+
+    def open_capture_config(self):
+        # Determine current resolution string; default to "2k" if not found
+        current_resolution = "2k"
+        for res in ["1080p", "2k", "4k"]:
+            if VIDEO_CONFIG.get(res) == self.capture_thread.video_config:
+                current_resolution = res
+                break
+
+        # Open the configuration dialog pre-filled with current settings
+        dialog = CaptureConfigDialog(self.capture_thread.video_source, current_resolution, self)
+        if dialog.exec() == QDialog.Accepted:
+            new_video_path, new_resolution = dialog.get_configuration()
+            print(f"Applying new capture configuration: {new_video_path}, {new_resolution}")
+            # Stop the current capture thread
+            self.capture_thread.stop()
+            self.capture_thread.wait()
+            # Create a new capture thread with the updated configuration
+            new_config = VIDEO_CONFIG.get(new_resolution, self.capture_thread.video_config)
+            self.capture_thread = CaptureThread(new_video_path, new_config)
+            self.capture_thread.frame_ready.connect(self.tracker.detect)
+            self.capture_thread.start()
 
     def handle_viewer_mouse_click(self, mouse_pos):
         """Click on the viewer; check if its within a face and save the profile."""
