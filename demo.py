@@ -35,9 +35,12 @@ class ConfigPanel(QFrame):
         layout.addWidget(self.parent().compositor.keypoints_checkbox)
         layout.addWidget(self.parent().compositor.distance_checkbox)
 
+        layout.addWidget(self.parent().compositor.label_scale_slider)
+        layout.addWidget(self.parent().compositor.label_thickness_slider)
+
         self.framerate_checkbox = QCheckBox("Print framerates")
         self.framerate_checkbox.setChecked(False)
-        layout.addWidget(self.framerate_checkbox)
+        #layout.addWidget(self.framerate_checkbox)
 
 # Viewer for video frames  
 class Demo(QMainWindow):
@@ -99,14 +102,6 @@ class Demo(QMainWindow):
         self.control_panel.setFixedWidth(300)
         self.control_layout = QVBoxLayout(self.control_panel)
         self.splitter.addWidget(self.control_panel)
-
-        # Video path input and load button
-        self.video_path_input = QLineEdit(self)
-        self.video_path_input.setPlaceholderText("Enter video file path...")
-        self.load_video_button = QPushButton("Load Video Path", self)
-        #self.load_video_button.clicked.connect(self.update_video_path)
-        self.control_layout.addWidget(self.video_path_input)
-        self.control_layout.addWidget(self.load_video_button)
 
         # Config panel with checkboxes
         self.control_layout.addWidget(self.config_panel)

@@ -1,12 +1,11 @@
 import queue
 import numpy as np
 import cv2
-from PIL import Image  # Import PIL for handling .ico files
-
 from PySide6.QtCore import QTimer, QObject, Signal
 from PySide6.QtWidgets import QCheckBox
 
-from .utils import Framerate
+from .utils import Framerate, SliderWithLabel
+
 
 class MxColors: 
     LightBlue = (198, 234, 242)
@@ -31,15 +30,25 @@ class Compositor(QObject):
         self.distance_checkbox = QCheckBox("Show Similarity")
         self.distance_checkbox.setChecked(False)
 
+        # Instantiate SliderWithLabel widgets:
+        self.label_scale_slider = SliderWithLabel("Font Scale:", 
+                                                  minimum=50, 
+                                                  maximum=300, 
+                                                  initial=85, 
+                                                  step=5, 
+                                                  multiplier=0.01)
+        self.label_thickness_slider = SliderWithLabel("Font Thickness:", 
+                                                      minimum=1,
+                                                      maximum=10, 
+                                                      initial=2,
+                                                      step=1, 
+                                                      multiplier=1)
+
+
         # Load icons and resize
         self.load_icons()
 
     def load_icons(self):
-        #pil_im = Image.open("assets/icon.ico")
-        #pil_im = pil_im.convert("RGBA")  # Ensure image has an alpha channel
-        #icon = cv2.resize(np.array(pil_im), (100, 100))
-        #self.icon_left = icon 
-
         icon = cv2.imread("assets/logo.png", cv2.IMREAD_UNCHANGED)
         icon = cv2.resize(icon, (100, 100))
         self.logo = cv2.cvtColor(icon, cv2.COLOR_RGBA2BGRA)
@@ -57,6 +66,10 @@ class Compositor(QObject):
         label = f'{obj.name}({obj.track_id})'
         h, w = frame.shape[:2]
 
+        # Get dynamic font parameters from the slider widgets.
+        font_scale = self.label_scale_slider.value()  # Float value (e.g. 0.85)
+        thickness = int(self.label_thickness_slider.value())
+
         # Compute center x coordinate of detection box.
         cx = left + (right - left) // 2
 
@@ -67,7 +80,7 @@ class Compositor(QObject):
 
         # Get text size for label.
         (text_width, text_height), baseline = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_SIMPLEX, 0.85, 2)
+            label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
         horiz_length = text_width + margin
 
         # Default horizontal direction (to the right).
@@ -122,7 +135,7 @@ class Compositor(QObject):
 
         # Draw the label text in Blue.
         cv2.putText(frame, label, (text_x, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, MxColors.Blue, 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, MxColors.Blue, thickness)
 
     def draw_objects(self, frame, tracked_objects):
         for obj in tracked_objects:
