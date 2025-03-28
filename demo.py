@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 import cv2
 import numpy as np
 
@@ -78,6 +79,14 @@ class Demo(QMainWindow):
         self.control_panel.setFixedWidth(300)
         self.control_layout = QVBoxLayout(self.control_panel)
         self.splitter.addWidget(self.control_panel)
+
+        # Add logo at the top of control panel
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("assets/mx-logo.png")
+        logo_label.setPixmap(logo_pixmap.scaledToWidth(200, Qt.SmoothTransformation))
+        logo_label.setAlignment(Qt.AlignCenter)
+        self.control_layout.addWidget(logo_label)
+
 
         # Add the capture config and compositor config buttons.
         self.control_layout.addWidget(self.capture_control_button)
@@ -169,6 +178,13 @@ class Demo(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     video_path = "/dev/video0"  # Update this path as needed.
+    streams = sorted(glob.glob('/dev/video*'))
+
+    if not streams:
+        video_path = 'assets/logo.png'
+    else:
+        video_path = streams[0] 
+
     player = Demo(video_path, VIDEO_CONFIG['2k'])
     player.resize(1200, 800)
     player.show()
