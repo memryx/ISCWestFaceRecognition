@@ -2,6 +2,10 @@
 
 Realtime face recognition enabled by the MemryX MX3. 
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Demo">
+</p>
+
 ## Overview
 
 | Property             | Details                                                                 
