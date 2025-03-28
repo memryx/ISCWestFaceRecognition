@@ -2,7 +2,7 @@
 
 Realtime face recognition enabled by the MemryX MX3. Uses off the shelf models and libraries to implement a fully end-to-end face recognition solution
 
-- Face detection based on `YoloV8`
+- Face detection based on `YoloV8n 640x640`
 - Face recognition based on `FaceNet`
 - Tracking algorithm based on `ByteTrack`
 
