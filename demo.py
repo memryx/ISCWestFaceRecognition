@@ -152,7 +152,7 @@ class Demo(QMainWindow):
                     else:
                         profile_path = os.path.join(self.database_viewer.db_path, obj.name)
 
-                if os.path.exists(profile_path):
+                if os.path.exists(profile_path) and Path(profile_path) != Path(self.database_viewer.db_path):
                     i = 0
                     while os.path.exists(os.path.join(profile_path, f"{i}.jpg")):
                         i += 1

@@ -216,13 +216,16 @@ class DatabaseViewerWidget(QWidget):
 
     def add_profile(self):
         profile_name, ok = QInputDialog.getText(self, 'Add New Profile', 'Enter profile name:')
-        if ok and profile_name:
-            profile_path = os.path.join(self.db_path, profile_name)
-            if not os.path.exists(profile_path):
-                os.makedirs(profile_path)
-                self.load_profiles()
+        if ok:
+            if profile_name:
+                profile_path = os.path.join(self.db_path, profile_name)
+                if not os.path.exists(profile_path):
+                    os.makedirs(profile_path)
+                    self.load_profiles()
+                else:
+                    QMessageBox.warning(self, 'Error', f"Profile '{profile_name}' already exists.")
             else:
-                QMessageBox.warning(self, 'Error', f"Profile '{profile_name}' already exists.")
+                    QMessageBox.warning(self, 'Error', f"Enter a valid profile name.")
         return profile_name
 
     def delete_profile(self, profile_name):
